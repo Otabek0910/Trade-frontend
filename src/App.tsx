@@ -40,7 +40,7 @@ function LoginScreen() {
     }
     setLoading(true)
     try {
-      const res = await axios.post('https://trade-backend.onrender.com/auth/login', { init_data: initData })
+      const res = await axios.post('https://trade-backend-k7id.onrender.com/auth/login', { init_data: initData })
       login(res.data.user, res.data.access_token)
       window.Telegram?.WebApp?.HapticFeedback?.impactOccurred('light')
     } catch (err: unknown) {
