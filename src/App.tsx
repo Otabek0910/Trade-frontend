@@ -40,10 +40,11 @@ function LoginScreen() {
     }
     setLoading(true)
     try {
-      const res = await axios.post('/auth/login', { init_data: initData })
+      const res = await axios.post('https://trade-backend.onrender.com/auth/login', { init_data: initData })
       login(res.data.user, res.data.access_token)
       window.Telegram?.WebApp?.HapticFeedback?.impactOccurred('light')
     } catch (err: unknown) {
+      console.error('Login error:', err);
       const axiosErr = err as AxiosError<{ detail?: string }>
       const msg = axiosErr.response?.data?.detail || axiosErr.message || 'Неизвестная ошибка'
       alert(`❌ Ошибка: ${msg}`)
@@ -54,53 +55,67 @@ function LoginScreen() {
   return (
     <div style={{
       minHeight: '100vh',
-      background: isDark ? '#1a1a1a' : '#f0f2f5',
-      display: 'flex', flexDirection: 'column',
-      alignItems: 'center', justifyContent: 'center', padding: 24,
+      background: isDark ? '#1a1a1a' : '#f8f8f8',
+      color: isDark ? '#fff' : '#1a1a1a',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 20,
+      fontFamily: 'system-ui, -apple-system, sans-serif',
+      textAlign: 'center',
+      gap: 20,
+      position: 'relative',
     }}>
-      <div style={{ textAlign: 'center', maxWidth: 320, width: '100%' }}>
-        <div style={{ fontSize: 64, marginBottom: 16 }}>📦</div>
-        <h1 style={{ fontSize: 28, fontWeight: 800, color: isDark ? '#fff' : '#1a1a1a', margin: '0 0 8px' }}>
-          Склад и Продажи
-        </h1>
-        <p style={{ fontSize: 15, color: isDark ? '#666' : '#999', marginBottom: 40 }}>
-          Telegram Mini App MVP
+      <div style={{ fontSize: 60, marginBottom: 8 }}>📦</div>
+      <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Склад и Продажи</h1>
+      <p style={{ fontSize: 15, color: isDark ? '#999' : '#666', margin: 0 }}>Telegram Mini App MVP</p>
+
+      <button
+        onClick={handleLogin}
+        disabled={loading || !isInTelegram}
+        style={{
+          background: 'var(--tg-theme-button-color, #2ea6ff)',
+          color: 'var(--tg-theme-button-text-color, #fff)',
+          border: 'none',
+          borderRadius: 12,
+          padding: '16px 32px',
+          fontSize: 17,
+          fontWeight: 600,
+          cursor: 'pointer',
+          marginTop: 24,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          opacity: loading ? 0.7 : 1,
+        }}
+      >
+        🚀 Войти через Telegram
+      </button>
+
+      {!isInTelegram && (
+        <p style={{ fontSize: 14, color: '#ff3b30', maxWidth: 280 }}>
+          ⚠️ Это приложение работает только внутри Telegram. Откройте его в TG!
         </p>
+      )}
 
-        <button onClick={handleLogin} disabled={loading} style={{
-          width: '100%', background: loading ? '#555' : '#2481cc', color: '#fff',
-          border: 'none', borderRadius: 16, padding: '16px 24px',
-          fontSize: 16, fontWeight: 700, cursor: loading ? 'default' : 'pointer',
-          transition: 'all 0.15s', boxShadow: '0 4px 20px rgba(36,129,204,0.4)',
-        }}>
-          {loading ? 'Проверка доступа...' : '🚀 Войти через Telegram'}
-        </button>
-
-        {!isInTelegram && (
-          <div style={{
-            marginTop: 24, padding: 16,
-            background: isDark ? '#242424' : '#fff',
-            borderRadius: 12, fontSize: 13, color: isDark ? '#666' : '#999',
-          }}>
-            🔧 Откройте в Telegram для полной работы
-          </div>
-        )}
-      </div>
-
-      <div style={{ position: 'absolute', bottom: 24, fontSize: 11, color: isDark ? '#333' : '#ccc' }}>
-        MVP для одного бизнеса • 2026
+      <div style={{ position: 'absolute', bottom: 20, fontSize: 11, color: isDark ? '#444' : '#bbb' }}>
+        MVP для малого бизнеса • 2026
       </div>
     </div>
   )
 }
 
-// ─── Router ───────────────────────────────────────────────────────────────────
+// ─── Routes ───────────────────────────────────────────────────────────────────
 function AppRoutes() {
   const { user } = useAuth()
+  const isAuthenticated = !!user
 
   return (
     <Routes>
-      <Route path="/login" element={user ? <Navigate to="/" replace /> : <LoginScreen />} />
+      <Route path="/login" element={
+        isAuthenticated ? <Navigate to="/" replace /> : <LoginScreen />
+      } />
 
       <Route path="/" element={
         <ProtectedRoute><MainMenu /></ProtectedRoute>
