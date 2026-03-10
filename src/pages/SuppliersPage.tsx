@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import axios from 'axios'
+import api from '../api'
 import { useAuth } from '../contexts/AuthContext'
 import SupplierDetailModal from './suppliers/SupplierDetailModal'
 import AddSupplierModal from './suppliers/AddSupplierModal'
@@ -33,7 +33,7 @@ export default function SuppliersPage() {
 
   useEffect(() => {
     let cancelled = false
-    axios.get('/suppliers', { headers: { Authorization: `Bearer ${token}` } })
+    api.get('/suppliers', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => { if (!cancelled) { setSuppliers(r.data); setLoading(false) } })
       .catch(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import axios from 'axios'
+import api from '../api'
 import { useAuth } from '../contexts/AuthContext'
 
 interface PeriodStats {
@@ -85,7 +85,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     let cancelled = false
-    axios.get('/dashboard', { headers: { Authorization: `Bearer ${token}` } })
+    api.get('/dashboard', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => { if (!cancelled) { setData(r.data); setLoading(false) } })
       .catch(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
@@ -95,7 +95,7 @@ export default function DashboardPage() {
   const handleReset = async () => {
     setResetting(true)
     try {
-      await axios.post('/export/reset', {}, { headers: { Authorization: `Bearer ${token}` } })
+      await api.post('/export/reset', {}, { headers: { Authorization: `Bearer ${token}` } })
       setConfirmReset(false)
       navigate('/')  // не reload — чтобы не потерять токен
     } catch (err: unknown) {
@@ -108,7 +108,7 @@ export default function DashboardPage() {
   const handleDbBackup = async () => {
     setBackingUp(true)
     try {
-      const res = await axios.get('/export/db-backup', {
+      const res = await api.get('/export/db-backup', {
         headers: { Authorization: `Bearer ${token}` },
         responseType: 'blob',
       })
@@ -132,7 +132,7 @@ export default function DashboardPage() {
     try {
       const form = new FormData()
       form.append('file', file)
-      await axios.post('/export/db-restore', form, {
+      await api.post('/export/db-restore', form, {
         headers: { Authorization: `Bearer ${token}` },
       })
       setImportResult('✅ БД восстановлена! Перезайдите в приложение.')
@@ -149,11 +149,11 @@ export default function DashboardPage() {
     setExporting(true); setExportSuccess('')
     try {
       if (isMobileTg) {
-        await axios.get(`/export/send?days=${exportDays}`, { headers: { Authorization: `Bearer ${token}` } })
+        await api.get(`/export/send?days=${exportDays}`, { headers: { Authorization: `Bearer ${token}` } })
         setExportSuccess('✅ Файл отправлен в Telegram!')
         setTimeout(() => setExportSuccess(''), 4000)
       } else {
-        const res = await axios.get(`/export?days=${exportDays}`, { headers: { Authorization: `Bearer ${token}` }, responseType: 'blob' })
+        const res = await api.get(`/export?days=${exportDays}`, { headers: { Authorization: `Bearer ${token}` }, responseType: 'blob' })
         const url = window.URL.createObjectURL(new Blob([res.data]))
         const a = document.createElement('a'); a.href = url
         a.download = `trade_report_${new Date().toISOString().slice(0,10)}.xlsx`; a.click()

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import axios from 'axios'
+import api from '../api'
 import { useAuth } from '../contexts/AuthContext'
 import AddProductModal from './stock/AddProductModal'
 import ReceiptModal from './stock/ReceiptModal'
@@ -52,7 +52,7 @@ export default function StockPage() {
     if (search) params.search = search
     if (filterLow) params.low_stock = 'true'
 
-    axios
+    api
       .get<{ items: Product[] }>('/products', {
         headers: { Authorization: `Bearer ${token}` },
         params,
@@ -306,7 +306,7 @@ function ReceiptHistoryTab({ token, card, text, muted, border }: {
 
   useEffect(() => {
     let cancelled = false
-    axios
+    api
       .get('/receipts', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => { if (!cancelled) setHistory(r.data) })
       .catch(() => {})

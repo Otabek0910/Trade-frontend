@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import { useState, useEffect } from 'react'
-import axios from 'axios'
+import api from '../api'
 import { useAuth } from '../contexts/AuthContext'
 import type { TelegramUser } from '../contexts/AuthContext'
 
@@ -120,7 +120,7 @@ export default function MainMenu() {
 
   useEffect(() => {
     if (!token) return
-    axios.get('/dashboard/quick-stats', { headers: { Authorization: `Bearer ${token}` } })
+    api.get('/dashboard/quick-stats', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => setQuickStats(r.data))
       .catch(() => {})
   }, [token])

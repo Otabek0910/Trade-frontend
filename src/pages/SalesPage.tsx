@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import axios from 'axios'
+import api from '../api'
 import { useAuth } from '../contexts/AuthContext'
 import CartView from './sales/CartView'
 import CustomerSelectModal from './sales/CustomerSelectModal'
@@ -70,7 +70,7 @@ export default function SalesPage() {
     Promise.resolve().then(() => setLoading(true))
     const params: Record<string, string> = {}
     if (search) params.search = search
-    axios.get('/products', { headers: { Authorization: `Bearer ${token}` }, params })
+    api.get('/products', { headers: { Authorization: `Bearer ${token}` }, params })
       .then(r => { if (!cancelled) setProducts(r.data.items.filter((p: Product) => p.current_stock > 0)) })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false) })
@@ -80,7 +80,7 @@ export default function SalesPage() {
   useEffect(() => {
     if (tab !== 'history') return
     Promise.resolve().then(() => setHistoryLoading(true))
-    axios.get('/dashboard/sales-history?limit=100', { headers: { Authorization: `Bearer ${token}` } })
+    api.get('/dashboard/sales-history?limit=100', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => setHistory(r.data.items))
       .catch(() => {})
       .finally(() => setHistoryLoading(false))

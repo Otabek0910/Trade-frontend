@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import axios from 'axios'
+import api from '../api'
 import { useAuth } from '../contexts/AuthContext'
 import CustomerDetailModal from './customers/CustomerDetailModal'
 import AddCustomerModal from './customers/AddCustomerModal'
@@ -39,7 +39,7 @@ export default function CustomersPage() {
     if (search) params.search = search
     if (filterDebt) params.has_debt = 'true'
     if (showInactive) params.show_inactive = 'true'
-    axios.get('/customers', {
+    api.get('/customers', {
       headers: { Authorization: `Bearer ${token}` }, params,
     }).then(r => {
       if (!cancelled) { setCustomers(r.data); setLoading(false) }
