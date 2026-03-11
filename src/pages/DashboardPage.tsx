@@ -22,6 +22,7 @@ interface DashboardData {
   returns_month_total: number
   cash_alltime: number
   total_customer_debt: number
+  total_supplier_debt: number
   stock_value: number
 }
 type Period = 'today' | 'week' | 'month'
@@ -266,6 +267,12 @@ export default function DashboardPage() {
               <div style={{ marginTop: 8, background: '#ff3b3010', border: '1px solid #ff3b3025', borderRadius: 10, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: 12, color: muted }}>⏳ В долгах у клиентов</span>
                 <span style={{ fontSize: 14, fontWeight: 800, color: '#ff3b30' }}>{fmt(data.total_customer_debt)} сум</span>
+              </div>
+            )}
+            {(data.total_supplier_debt ?? 0) > 0 && (
+              <div style={{ marginTop: 8, background: '#ff950015', border: '1px solid #ff950035', borderRadius: 10, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 12, color: muted }}>🚚 Долг поставщикам</span>
+                <span style={{ fontSize: 14, fontWeight: 800, color: '#ff9500' }}>{fmt(data.total_supplier_debt)} сум</span>
               </div>
             )}
             <div style={{ marginTop: 8, background: isDark ? '#1a2a1a' : '#f0faf4', border: '1px solid #34c75930', borderRadius: 10, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

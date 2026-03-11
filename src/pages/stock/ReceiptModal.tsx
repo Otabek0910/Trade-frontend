@@ -25,6 +25,7 @@ export default function ReceiptModal({ token, product, isDark, onClose, onSucces
     supplier_id: '',
     quantity: '',
     purchase_price: String(product.purchase_price),
+    paid_amount: '',        // пусто = полная оплата
   })
 
   useEffect(() => {
@@ -33,6 +34,13 @@ export default function ReceiptModal({ token, product, isDark, onClose, onSucces
   }, [token])
 
   const set = (key: string, val: string) => setForm(f => ({ ...f, [key]: val }))
+
+  const totalCost = form.quantity && form.purchase_price
+    ? parseInt(form.quantity) * parseFloat(form.purchase_price)
+    : 0
+
+  const paidNum = form.paid_amount !== '' ? parseFloat(form.paid_amount) : totalCost
+  const debtNum = totalCost > 0 ? Math.max(0, totalCost - paidNum) : 0
 
   const handleSubmit = async () => {
     if (!form.supplier_id || !form.quantity || !form.purchase_price) {
@@ -47,9 +55,10 @@ export default function ReceiptModal({ token, product, isDark, onClose, onSucces
         supplier_id: parseInt(form.supplier_id),
         quantity: parseInt(form.quantity),
         purchase_price: parseFloat(form.purchase_price),
+        paid_amount: form.paid_amount !== '' ? parseFloat(form.paid_amount) : null,
       }, { headers: { Authorization: `Bearer ${token}` } })
       setSuccess(res.data.message)
-      setTimeout(onSuccess, 1200)
+      setTimeout(onSuccess, 1400)
     } catch (err) {
       const e = err as AxiosError<{ detail?: string }>
       setError(e.response?.data?.detail || 'Ошибка при приёмке')
@@ -72,10 +81,6 @@ export default function ReceiptModal({ token, product, isDark, onClose, onSucces
     fontSize: 12, fontWeight: 600, color: muted,
     marginBottom: 6, display: 'block' as const,
   }
-
-  const totalCost = form.quantity && form.purchase_price
-    ? (parseInt(form.quantity) * parseFloat(form.purchase_price)).toLocaleString()
-    : null
 
   return (
     <div style={{
@@ -115,7 +120,7 @@ export default function ReceiptModal({ token, product, isDark, onClose, onSucces
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <div>
-                <label style={labelStyle}>Количество (шт) *</label>
+                <label style={labelStyle}>Количество *</label>
                 <input style={inputStyle} type="number" min="1" placeholder="0"
                   value={form.quantity} onChange={e => set('quantity', e.target.value)} />
               </div>
@@ -126,10 +131,32 @@ export default function ReceiptModal({ token, product, isDark, onClose, onSucces
               </div>
             </div>
 
-            {totalCost && (
-              <div style={{ background: '#2481cc20', border: '1px solid #2481cc40', borderRadius: 12, padding: '10px 14px' }}>
+            {/* Итого */}
+            {totalCost > 0 && (
+              <div style={{ background: '#2481cc15', border: '1px solid #2481cc30', borderRadius: 12, padding: '10px 14px' }}>
                 <span style={{ fontSize: 13, color: '#2481cc', fontWeight: 600 }}>
-                  Итого к оплате: {totalCost} сум
+                  Итого: {totalCost.toLocaleString()} сум
+                </span>
+              </div>
+            )}
+
+            {/* Оплата */}
+            <div>
+              <label style={labelStyle}>Оплачено сейчас (пусто = полная оплата)</label>
+              <input style={inputStyle} type="number" min="0"
+                placeholder={totalCost > 0 ? `${totalCost.toLocaleString()} сум` : '0'}
+                value={form.paid_amount}
+                onChange={e => set('paid_amount', e.target.value)} />
+            </div>
+
+            {/* Долг */}
+            {debtNum > 0 && (
+              <div style={{ background: '#ff3b3015', border: '1px solid #ff3b3040', borderRadius: 12, padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 13, color: '#ff3b30', fontWeight: 700 }}>
+                  ⚠️ Долг поставщику: {debtNum.toLocaleString()} сум
+                </span>
+                <span style={{ fontSize: 11, color: muted }}>
+                  Оплачено: {paidNum.toLocaleString()}
                 </span>
               </div>
             )}

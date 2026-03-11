@@ -5,12 +5,15 @@ import LocationPickerModal from './LocationPickerModal'
 import { unitDisplay } from '../sales/unitHelpers'
 
 interface Product { id: number; name: string; sku: string; current_stock: number; purchase_price: number; selling_price: number; unit: string; unit_value: number | null }
-interface Receipt { id: number; product_name: string; quantity: number; purchase_price: number; total: number; created_at: string; unit: string; unit_value: number | null }
+interface Receipt { id: number; product_name: string; quantity: number; purchase_price: number; total: number; paid_amount: number; debt: number; created_at: string; unit: string; unit_value: number | null }
+interface DebtPayment { id: number; amount: number; note: string | null; user_name: string; created_at: string }
 interface NominatimResult { display_name: string; lat: string; lon: string }
 
 interface DetailData extends Supplier {
   products: Product[]
   recent_receipts: Receipt[]
+  debt_payments: DebtPayment[]
+  total_debt: number
 }
 
 interface Props {
@@ -25,7 +28,7 @@ interface Props {
 export default function SupplierDetailModal({ supplierId, token, isDark, onClose, onUpdate, onDelete }: Props) {
   const [data, setData] = useState<DetailData | null>(null)
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState<'info' | 'products' | 'receipts'>('info')
+  const [tab, setTab] = useState<'info' | 'products' | 'receipts' | 'debt'>('info')
   const [editing, setEditing] = useState(false)
   const [editName, setEditName] = useState('')
   const [editPhone, setEditPhone] = useState('')
@@ -34,6 +37,13 @@ export default function SupplierDetailModal({ supplierId, token, isDark, onClose
   const [saving, setSaving] = useState(false)
   const [deleteError, setDeleteError] = useState('')
   const [deleting, setDeleting] = useState(false)
+
+  // Оплата долга
+  const [payAmount, setPayAmount] = useState('')
+  const [payNote, setPayNote] = useState('')
+  const [paying, setPaying] = useState(false)
+  const [payError, setPayError] = useState('')
+  const [paySuccess, setPaySuccess] = useState('')
 
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const [lightbox, setLightbox] = useState(false)
@@ -256,7 +266,7 @@ export default function SupplierDetailModal({ supplierId, token, isDark, onClose
                   {[
                     { label: 'Товаров', value: data.products_count, color: '#2481cc' },
                     { label: 'Приёмок', value: data.total_receipts, color: '#1a6b3c' },
-                    { label: 'Закуплено', value: `${(data.total_purchased / 1000).toFixed(0)}К`, color: '#7a3b8c' },
+                    { label: 'Долг', value: data.total_debt > 0 ? `${(data.total_debt / 1000).toFixed(0)}К` : '—', color: data.total_debt > 0 ? '#ff3b30' : muted },
                   ].map(s => (
                     <div key={s.label} style={{ flex: 1, background: isDark ? '#333' : '#f8f9fa', borderRadius: 12, padding: '8px 6px', textAlign: 'center' }}>
                       <div style={{ fontSize: 15, fontWeight: 800, color: s.color }}>{s.value}</div>
@@ -266,12 +276,12 @@ export default function SupplierDetailModal({ supplierId, token, isDark, onClose
                 </div>
 
                 <div style={{ display: 'flex', gap: 4, background: isDark ? '#333' : '#f0f2f5', borderRadius: 10, padding: 3, marginTop: 12 }}>
-                  {([['info', '📋 Инфо'], ['products', '📦 Товары'], ['receipts', '📥 Приёмки']] as const).map(([t, label]) => (
+                  {([['info', '📋 Инфо'], ['products', '📦 Товары'], ['receipts', '📥 Приёмки'], ['debt', '💳 Долг']] as const).map(([t, label]) => (
                     <button key={t} onClick={() => setTab(t)} style={{
-                      flex: 1, border: 'none', borderRadius: 8, padding: '7px 0', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                      background: tab === t ? card : 'transparent', color: tab === t ? text : muted,
+                      flex: 1, border: 'none', borderRadius: 8, padding: '7px 0', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                      background: tab === t ? card : 'transparent', color: tab === t ? (t === 'debt' && data.total_debt > 0 ? '#ff3b30' : text) : muted,
                       boxShadow: tab === t ? '0 1px 3px rgba(0,0,0,0.12)' : 'none',
-                    }}>{label}</button>
+                    }}>{label}{t === 'debt' && data.total_debt > 0 ? ' 🔴' : ''}</button>
                   ))}
                 </div>
               </div>
@@ -404,8 +414,86 @@ export default function SupplierDetailModal({ supplierId, token, isDark, onClose
                           <div style={{ fontSize: 12, color: muted }}>
                             {unitDisplay(r.unit, r.unit_value, r.quantity)} × {fmt(r.purchase_price)} сум · {r.created_at ? new Date(r.created_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}
                           </div>
+                          {r.debt > 0 && (
+                            <div style={{ marginTop: 6, fontSize: 12, color: '#ff3b30', fontWeight: 600 }}>
+                              ⚠️ Долг: {fmt(r.debt)} сум · Оплачено: {fmt(r.paid_amount)}
+                            </div>
+                          )}
                         </div>
                       ))}
+                  </div>
+                )}
+
+                {tab === 'debt' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {/* Текущий долг */}
+                    <div style={{ background: data.total_debt > 0 ? '#ff3b3015' : '#34c75915', border: `1px solid ${data.total_debt > 0 ? '#ff3b3040' : '#34c75940'}`, borderRadius: 14, padding: '14px 16px', textAlign: 'center' }}>
+                      <div style={{ fontSize: 22, fontWeight: 800, color: data.total_debt > 0 ? '#ff3b30' : '#34c759' }}>
+                        {fmt(data.total_debt)} сум
+                      </div>
+                      <div style={{ fontSize: 12, color: muted, marginTop: 4 }}>
+                        {data.total_debt > 0 ? 'Текущий долг поставщику' : '✅ Долгов нет'}
+                      </div>
+                    </div>
+
+                    {/* Форма оплаты */}
+                    {data.total_debt > 0 && (
+                      <div style={{ background: card, borderRadius: 14, padding: '14px 16px', border: `1px solid ${border}` }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: text, marginBottom: 12 }}>💳 Оплатить долг</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                          <input
+                            style={{ width: '100%', boxSizing: 'border-box' as const, background: isDark ? '#333' : '#f8f9fa', border: `1px solid ${border}`, borderRadius: 10, padding: '10px 12px', fontSize: 15, color: text, outline: 'none' }}
+                            type="number" placeholder={`Макс: ${fmt(data.total_debt)} сум`}
+                            value={payAmount} onChange={e => setPayAmount(e.target.value)} />
+                          <input
+                            style={{ width: '100%', boxSizing: 'border-box' as const, background: isDark ? '#333' : '#f8f9fa', border: `1px solid ${border}`, borderRadius: 10, padding: '10px 12px', fontSize: 14, color: text, outline: 'none' }}
+                            type="text" placeholder="Заметка (необязательно)"
+                            value={payNote} onChange={e => setPayNote(e.target.value)} />
+                          {payError && <div style={{ fontSize: 12, color: '#ff3b30' }}>{payError}</div>}
+                          {paySuccess && <div style={{ fontSize: 12, color: '#34c759', fontWeight: 600 }}>{paySuccess}</div>}
+                          <button
+                            disabled={paying || !payAmount}
+                            onClick={async () => {
+                              if (!payAmount) return
+                              setPaying(true); setPayError(''); setPaySuccess('')
+                              try {
+                                const res = await axios.post(`/suppliers/${supplierId}/pay-debt`,
+                                  { amount: parseFloat(payAmount), note: payNote || null },
+                                  { headers }
+                                )
+                                setPaySuccess(res.data.message)
+                                setPayAmount(''); setPayNote('')
+                                setData(d => d ? { ...d, total_debt: res.data.total_debt } : d)
+                              } catch (e) {
+                                const err = e as AxiosError<{ detail?: string }>
+                                setPayError(err.response?.data?.detail || 'Ошибка')
+                              }
+                              setPaying(false)
+                            }}
+                            style={{ background: paying ? '#555' : 'linear-gradient(135deg, #1a6b3c, #2d9c5c)', border: 'none', borderRadius: 12, padding: 13, color: '#fff', fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>
+                            {paying ? 'Оплата...' : '✅ Оплатить'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* История платежей */}
+                    {data.debt_payments?.length > 0 && (
+                      <>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: muted, marginTop: 4 }}>История оплат</div>
+                        {data.debt_payments.map(p => (
+                          <div key={p.id} style={{ background: card, borderRadius: 12, padding: '10px 14px', border: `1px solid ${border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div>
+                              <div style={{ fontSize: 14, fontWeight: 700, color: '#34c759' }}>+ {fmt(p.amount)} сум</div>
+                              <div style={{ fontSize: 11, color: muted, marginTop: 2 }}>
+                                {p.user_name} · {p.created_at ? new Date(p.created_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}
+                              </div>
+                              {p.note && <div style={{ fontSize: 12, color: muted, marginTop: 2 }}>{p.note}</div>}
+                            </div>
+                          </div>
+                        ))}
+                      </>
+                    )}
                   </div>
                 )}
               </div>
