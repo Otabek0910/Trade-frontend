@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../api'
 import { useAuth } from '../contexts/AuthContext'
+import { unitDisplay } from './sales/unitHelpers'
 
 interface PeriodStats {
   sales_count: number; revenue: number; paid: number
@@ -10,12 +11,12 @@ interface PeriodStats {
 }
 interface DashboardData {
   today: PeriodStats; week: PeriodStats; month: PeriodStats
-  top_products: { name: string; total_qty: number; total_revenue: number }[]
+  top_products: { name: string; total_qty: number; total_revenue: number; unit: string; unit_value: number | null }[]
   top_debtors: { id: number; name: string; phone: string; total_debt: number; total_purchases: number }[]
   low_stock_count: number
-  low_stock_items: { name: string; current_stock: number; min_stock: number }[]
+  low_stock_items: { name: string; current_stock: number; min_stock: number; unit: string; unit_value: number | null }[]
   expenses_by_category: { category: string; total: number }[]
-  recent_returns: { id: number; product_name: string; customer_name: string; quantity: number; return_amount: number; reason: string | null; created_at: string }[]
+  recent_returns: { id: number; product_name: string; customer_name: string; quantity: number; return_amount: number; reason: string | null; created_at: string; unit: string; unit_value: number | null }[]
   seller_stats: { name: string; sales_count: number; revenue: number; paid: number; debt: number }[]
   cash_by_type: Record<string, { total: number; count: number }>
   returns_month_total: number
@@ -309,7 +310,7 @@ export default function DashboardPage() {
               {data.low_stock_items.map(item => (
                 <div key={item.name} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: muted, paddingTop: 4 }}>
                   <span>{item.name}</span>
-                  <span style={{ color: '#ff3b30', fontWeight: 600 }}>{item.current_stock} / {item.min_stock} шт</span>
+                  <span style={{ color: '#ff3b30', fontWeight: 600 }}>{unitDisplay(item.unit, item.unit_value, item.current_stock)} / {item.min_stock} {item.unit}</span>
                 </div>
               ))}
             </div>
@@ -345,7 +346,7 @@ export default function DashboardPage() {
                   <div style={{ width: 26, height: 26, borderRadius: 8, flexShrink: 0, background: ['#ffd700','#c0c0c0','#cd7f32','#2481cc20','#2481cc20'][i], display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 800, color: i < 3 ? '#1a1a1a' : '#2481cc' }}>{i+1}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
-                    <div style={{ fontSize: 11, color: muted }}>{p.total_qty} шт</div>
+                    <div style={{ fontSize: 11, color: muted }}>{unitDisplay(p.unit, p.unit_value, p.total_qty)}</div>
                   </div>
                   <div style={{ fontSize: 13, fontWeight: 700, color: '#1a6b3c', flexShrink: 0 }}>{fmt(p.total_revenue)} сум</div>
                 </div>
@@ -382,7 +383,7 @@ export default function DashboardPage() {
                   </div>
                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 700, color: '#e08030' }}>−{fmt(r.return_amount)}</div>
-                    <div style={{ fontSize: 11, color: muted }}>{r.quantity} шт.</div>
+                    <div style={{ fontSize: 11, color: muted }}>{unitDisplay(r.unit, r.unit_value, r.quantity)}</div>
                   </div>
                 </div>
               ))}

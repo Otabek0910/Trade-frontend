@@ -2,8 +2,9 @@ import { useState, useEffect, useRef } from 'react'
 import axios, { AxiosError } from 'axios'
 import type { Supplier } from '../SuppliersPage'
 import LocationPickerModal from './LocationPickerModal'
+import { unitDisplay } from '../sales/unitHelpers'
 
-interface Product { id: number; name: string; sku: string; current_stock: number; purchase_price: number; selling_price: number }
+interface Product { id: number; name: string; sku: string; current_stock: number; purchase_price: number; selling_price: number; unit: string; unit_value: number | null }
 interface Receipt { id: number; product_name: string; quantity: number; purchase_price: number; total: number; created_at: string }
 interface NominatimResult { display_name: string; lat: string; lon: string }
 
@@ -382,7 +383,7 @@ export default function SupplierDetailModal({ supplierId, token, isDark, onClose
                         <div key={p.id} style={{ background: card, borderRadius: 14, padding: '12px 14px', border: `1px solid ${border}` }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                             <div style={{ fontSize: 14, fontWeight: 700, color: text }}>{p.name}</div>
-                            <div style={{ fontSize: 12, color: p.current_stock <= 5 ? '#ff3b30' : muted, fontWeight: 600 }}>{p.current_stock} шт</div>
+                            <div style={{ fontSize: 12, color: p.current_stock <= 5 ? '#ff3b30' : muted, fontWeight: 600 }}>{unitDisplay(p.unit, p.unit_value, p.current_stock)}</div>
                           </div>
                           <div style={{ fontSize: 12, color: muted }}>SKU: {p.sku} · Закупка: {fmt(p.purchase_price)} · Продажа: {fmt(p.selling_price)}</div>
                         </div>
