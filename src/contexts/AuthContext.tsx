@@ -20,11 +20,30 @@ interface AuthContextType extends AuthState {
 
 const AuthContext = createContext<AuthContextType | null>(null)
 
-export function AuthProvider({ children }: { children: ReactNode }) {
-  const [auth, setAuth] = useState<AuthState>({ user: null, token: null })
+function loadAuth(): AuthState {
+  try {
+    const token = localStorage.getItem('access_token')
+    const userRaw = localStorage.getItem('tg_user')
+    if (token && userRaw) return { token, user: JSON.parse(userRaw) }
+  } catch {
+    return { user: null, token: null }
+  }
+  return { user: null, token: null }
+}
 
-  const login = (user: TelegramUser, token: string) => setAuth({ user, token })
-  const logout = () => setAuth({ user: null, token: null })
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [auth, setAuth] = useState<AuthState>(loadAuth)
+
+  const login = (user: TelegramUser, token: string) => {
+    localStorage.setItem('access_token', token)
+    localStorage.setItem('tg_user', JSON.stringify(user))
+    setAuth({ user, token })
+  }
+  const logout = () => {
+    localStorage.removeItem('access_token')
+    localStorage.removeItem('tg_user')
+    setAuth({ user: null, token: null })
+  }
 
   const hasRole = (...roles: TelegramUser['role'][]) => {
     if (!auth.user) return false
