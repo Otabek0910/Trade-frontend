@@ -5,7 +5,7 @@ import LocationPickerModal from './LocationPickerModal'
 import { unitDisplay } from '../sales/unitHelpers'
 
 interface Product { id: number; name: string; sku: string; current_stock: number; purchase_price: number; selling_price: number; unit: string; unit_value: number | null }
-interface Receipt { id: number; product_name: string; quantity: number; purchase_price: number; total: number; created_at: string }
+interface Receipt { id: number; product_name: string; quantity: number; purchase_price: number; total: number; created_at: string; unit: string; unit_value: number | null }
 interface NominatimResult { display_name: string; lat: string; lon: string }
 
 interface DetailData extends Supplier {
@@ -402,7 +402,7 @@ export default function SupplierDetailModal({ supplierId, token, isDark, onClose
                             <div style={{ fontSize: 13, fontWeight: 700, color: '#1a6b3c' }}>{fmt(r.total)} сум</div>
                           </div>
                           <div style={{ fontSize: 12, color: muted }}>
-                            {r.quantity} шт × {fmt(r.purchase_price)} сум · {r.created_at ? new Date(r.created_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}
+                            {unitDisplay(r.unit, r.unit_value, r.quantity)} × {fmt(r.purchase_price)} сум · {r.created_at ? new Date(r.created_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}
                           </div>
                         </div>
                       ))}
