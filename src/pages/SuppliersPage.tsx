@@ -17,6 +17,7 @@ export interface Supplier {
   products_count: number
   total_receipts: number
   total_purchased: number
+  total_debt: number
   created_at: string
 }
 
@@ -50,6 +51,7 @@ export default function SuppliersPage() {
     : n >= 1_000 ? `${(n / 1_000).toFixed(0)}К` : String(Math.round(n))
 
   const totalPurchased = suppliers.reduce((s, p) => s + p.total_purchased, 0)
+  const totalDebt = suppliers.reduce((s, p) => s + p.total_debt, 0)
 
   return (
     <div style={{ minHeight: '100vh', background: bg, display: 'flex', flexDirection: 'column', paddingBottom: 24 }}>
@@ -70,11 +72,11 @@ export default function SuppliersPage() {
       <div style={{ display: 'flex', gap: 8, padding: '10px 16px' }}>
         {[
           { label: 'Поставщиков', value: suppliers.length, color: '#2481cc' },
-          { label: 'Товаров', value: suppliers.reduce((s, p) => s + p.products_count, 0), color: '#1a6b3c' },
           { label: 'Закуплено', value: `${fmt(totalPurchased)} сум`, color: '#7a3b8c' },
+          { label: 'Наш долг', value: `${fmt(totalDebt)} сум`, color: totalDebt > 0 ? '#ff3b30' : '#34c759' },
         ].map(s => (
           <div key={s.label} style={{ flex: 1, background: card, borderRadius: 12, padding: '10px 8px', textAlign: 'center', border: `1px solid ${border}` }}>
-            <div style={{ fontSize: s.label === 'Закуплено' ? 13 : 20, fontWeight: 800, color: s.color }}>{s.value}</div>
+            <div style={{ fontSize: 13, fontWeight: 800, color: s.color }}>{s.value}</div>
             <div style={{ fontSize: 11, color: muted }}>{s.label}</div>
           </div>
         ))}
@@ -91,8 +93,10 @@ export default function SuppliersPage() {
           </div>
         ) : suppliers.map(s => (
           <button key={s.id} onClick={() => setSelected(s)} style={{
-            background: card, borderRadius: 16, padding: '12px 16px',
-            border: `1px solid ${border}`, cursor: 'pointer', textAlign: 'left',
+            background: s.total_debt > 0 ? (isDark ? '#2a1a1a' : '#fff8f8') : card,
+            borderRadius: 16, padding: '12px 16px',
+            border: `1.5px solid ${s.total_debt > 0 ? '#ff3b3050' : border}`,
+            cursor: 'pointer', textAlign: 'left',
             display: 'flex', alignItems: 'center', gap: 12,
           }}>
             <div style={{
@@ -118,11 +122,22 @@ export default function SuppliersPage() {
                 {s.phone || 'Телефон не указан'} · {s.products_count} товаров
               </div>
             </div>
-            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+            <div style={{ textAlign: 'right', flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: '#7a3b8c' }}>
                 {fmt(s.total_purchased)} сум
               </div>
               <div style={{ fontSize: 10, color: muted }}>{s.total_receipts} приёмок</div>
+              {s.total_debt > 0 && (
+                <div style={{
+                  fontSize: 11, fontWeight: 700,
+                  background: '#ff3b3015',
+                  border: '1px solid #ff3b3040',
+                  borderRadius: 8, padding: '2px 7px',
+                  color: '#ff3b30',
+                }}>
+                  💸 {fmt(s.total_debt)} долг
+                </div>
+              )}
             </div>
           </button>
         ))}
