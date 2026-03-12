@@ -42,6 +42,10 @@ export default function CartView({
   const subtotal = cart.reduce((s, i) => s + i.selling_price * i.quantity, 0)
   const discountVal = discount ? subtotal * (parseFloat(discount) / 100) : 0
   const total = subtotal - discountVal
+  const discountPct = parseFloat(discount) || 0
+  const sellerDiscountWarning = role === 'seller' && discountPct > 0
+    ? cart.some(i => i.purchase_price != null && i.selling_price * (1 - discountPct / 100) < i.purchase_price)
+    : false
   const paid = paidAmount ? parseFloat(paidAmount) : total
   const debt = Math.max(0, total - paid)
 
@@ -238,6 +242,11 @@ export default function CartView({
             <span style={{ color: muted, fontSize: 14 }}>%</span>
             {discountVal > 0 && <span style={{ color: '#ff3b30', fontSize: 13, fontWeight: 600 }}>− {discountVal.toLocaleString()} сум</span>}
           </div>
+          {sellerDiscountWarning && (
+            <div style={{ marginTop: 8, background: '#ff3b3015', border: '1px solid #ff3b3050', borderRadius: 10, padding: '8px 12px', fontSize: 12, color: '#ff3b30', fontWeight: 600 }}>
+              ⚠️ Скидка снижает цену ниже закупочной. Уменьшите скидку.
+            </div>
+          )}
         </div>
 
         {/* Total & paid */}
@@ -292,8 +301,8 @@ export default function CartView({
         )}
 
         {/* Confirm */}
-        <button onClick={handleConfirm} disabled={loading || !!success} style={{
-          width: '100%', background: success ? '#34c759' : loading ? '#555' : 'linear-gradient(135deg, #1a4b8c, #2d6fd4)',
+        <button onClick={handleConfirm} disabled={loading || !!success || sellerDiscountWarning} style={{
+          width: '100%', background: success ? '#34c759' : loading ? '#555' : sellerDiscountWarning ? '#888' : 'linear-gradient(135deg, #1a4b8c, #2d6fd4)',
           border: 'none', borderRadius: 16, padding: 16, color: '#fff',
           fontSize: 17, fontWeight: 800, cursor: 'pointer',
           boxShadow: '0 4px 20px rgba(26,75,140,0.4)',
