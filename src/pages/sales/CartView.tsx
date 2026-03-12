@@ -43,7 +43,9 @@ export default function CartView({
   const discountVal = discount ? subtotal * (parseFloat(discount) / 100) : 0
   const total = subtotal - discountVal
   const discountPct = parseFloat(discount) || 0
-  const sellerDiscountWarning = role === 'seller' && discountPct > 0
+  // Для продавца и владельца: предупреждение если скидка опускает цену ниже закупки
+  const isRestrictedRole = role === 'seller' || role === 'owner_business'
+  const sellerDiscountWarning = isRestrictedRole && discountPct > 0
     ? cart.some(i => i.purchase_price != null && i.selling_price * (1 - discountPct / 100) < i.purchase_price)
     : false
   const paid = paidAmount ? parseFloat(paidAmount) : total
@@ -63,7 +65,7 @@ export default function CartView({
   }
 
   const totalPurchaseCost = cart.reduce((s, i) => s + (i.purchase_price ?? 0) * i.quantity, 0)
-  const isBelowCost = role === 'seller' && total < totalPurchaseCost
+  const isBelowCost = isRestrictedRole && total < totalPurchaseCost
 
   const handleConfirm = async () => {
     if (isBelowCost) return
@@ -181,18 +183,20 @@ export default function CartView({
                   <input
                     type="number"
                     value={item.selling_price}
-                    onChange={e => {
-                      const val = parseFloat(e.target.value) || 0
-                      const minPrice = role === 'seller' ? (item.purchase_price ?? 0) : 0
-                      onUpdatePrice(item.product_id, Math.max(val, minPrice))
+                    onChange={e => onUpdatePrice(item.product_id, parseFloat(e.target.value) || 0)}
+                    onBlur={e => {
+                      if (isRestrictedRole && item.purchase_price) {
+                        const val = parseFloat(e.target.value) || 0
+                        if (val < item.purchase_price) onUpdatePrice(item.product_id, item.purchase_price)
+                      }
                     }}
                     style={{
                       ...inputStyle, width: 110, padding: '5px 10px', fontSize: 13,
-                      borderColor: role === 'seller' && item.purchase_price && item.selling_price < item.purchase_price
+                      borderColor: isRestrictedRole && item.purchase_price && item.selling_price < item.purchase_price
                         ? '#ff3b30' : undefined
                     }}
                   />
-                  {role === 'seller' && item.purchase_price && item.selling_price <= item.purchase_price && (
+                  {isRestrictedRole && item.purchase_price && item.selling_price <= item.purchase_price && (
                     <div style={{ fontSize: 10, color: '#ff3b30', marginTop: 2 }}>мин. цена</div>
                   )}
                   <div style={{ marginLeft: 'auto', fontSize: 14, fontWeight: 700, color: text, flexShrink: 0 }}>
@@ -240,19 +244,7 @@ export default function CartView({
           <div style={{ fontSize: 12, fontWeight: 700, color: muted, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>Скидка</div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <input type="number" min="0" max="100" placeholder="0"
-              value={discount} onChange={e => {
-                const val = parseFloat(e.target.value) || 0
-                if (role === 'seller' && val > 0) {
-                  // Найдём максимальную допустимую скидку для продавца
-                  const maxAllowed = cart.reduce((minPct, item) => {
-                    if (!item.purchase_price || item.purchase_price <= 0) return minPct
-                    const maxForItem = Math.floor((1 - item.purchase_price / item.selling_price) * 100)
-                    return Math.min(minPct, maxForItem)
-                  }, 100)
-                  if (val > maxAllowed) { setDiscount(String(Math.max(0, maxAllowed))); return }
-                }
-                setDiscount(e.target.value)
-              }}
+              value={discount} onChange={e => setDiscount(e.target.value)}
               style={{ ...inputStyle, width: 80 }}
             />
             <span style={{ color: muted, fontSize: 14 }}>%</span>

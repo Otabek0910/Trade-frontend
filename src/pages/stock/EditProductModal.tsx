@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import axios, { AxiosError } from 'axios'
+import api from '../../api'
+import type { AxiosError } from 'axios'
 
 interface Supplier { id: number; name: string }
 
@@ -34,8 +35,7 @@ interface Props {
 
 const UNITS = ['шт', 'л', 'кг', 'м', 'м²', 'уп', 'пар', 'рул']
 
-export default function EditProductModal({ product, token, isDark, role, onClose, onUpdate, onDelete }: Props) {
-  const headers = { Authorization: `Bearer ${token}` }
+export default function EditProductModal({ product, isDark, role, onClose, onUpdate, onDelete }: Props) {
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -57,13 +57,31 @@ export default function EditProductModal({ product, token, isDark, role, onClose
   const [photoUrl, setPhotoUrl] = useState<string | null>(product.photo_url)
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const [lightbox, setLightbox] = useState(false)
+
+  // История цен закупки
+  interface PriceRecord { id: number; quantity: number; purchase_price: number; supplier_name: string; storekeeper: string; created_at: string }
+  const [priceHistory, setPriceHistory] = useState<{ items: PriceRecord[]; total: number; pages: number } | null>(null)
+  const [historyPage, setHistoryPage] = useState(1)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [historyLoading, setHistoryLoading] = useState(false)
+
+  const loadHistory = (page: number) => {
+    setHistoryLoading(true)
+    api.get(`/receipts/product/${product.id}?page=${page}&limit=10`)
+      .then(r => { setPriceHistory(r.data); setHistoryPage(page) })
+      .catch(() => {})
+      .finally(() => setHistoryLoading(false))
+  }
+
+  const toggleHistory = () => {
+    if (!historyOpen && !priceHistory) loadHistory(1)
+    setHistoryOpen(v => !v)
+  }
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    axios.get('/suppliers', { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => setSuppliers(r.data))
-      .catch(() => {})
-  }, [token])
+    api.get('/suppliers').then(r => setSuppliers(r.data)).catch(() => {})
+  }, [])
 
   const set = (key: string, val: string) => setForm(f => ({ ...f, [key]: val }))
 
@@ -76,7 +94,7 @@ export default function EditProductModal({ product, token, isDark, role, onClose
     if (!form.name.trim()) { setError('Введите название'); return }
     setSaving(true); setError('')
     try {
-      const res = await axios.patch(`/products/${product.id}`, {
+      const res = await api.patch(`/products/${product.id}`, {
         name: form.name.trim(),
         category: form.category.trim() || null,
         brand: form.brand.trim() || null,
@@ -86,7 +104,7 @@ export default function EditProductModal({ product, token, isDark, role, onClose
         purchase_price: parseFloat(form.purchase_price),
         selling_price: parseFloat(form.selling_price),
         min_stock: parseInt(form.min_stock) || 5,
-      }, { headers })
+      })
       onUpdate({ ...res.data, photo_url: photoUrl })
       onClose()
     } catch (err) {
@@ -99,7 +117,7 @@ export default function EditProductModal({ product, token, isDark, role, onClose
   const handleDelete = async () => {
     setDeleting(true)
     try {
-      await axios.delete(`/products/${product.id}`, { headers })
+      await api.delete(`/products/${product.id}`)
       onDelete(product.id)
     } catch (err) {
       const e = err as AxiosError<{ detail?: string }>
@@ -116,9 +134,7 @@ export default function EditProductModal({ product, token, isDark, role, onClose
     const form2 = new FormData()
     form2.append('file', file)
     try {
-      const res = await axios.post(`/products/${product.id}/photo`, form2, {
-        headers: { ...headers, 'Content-Type': 'multipart/form-data' },
-      })
+      const res = await api.post(`/products/${product.id}/photo`, form2)
       setPhotoUrl(res.data.photo_url)
       onUpdate({ ...product, photo_url: res.data.photo_url })
     } catch { /* silent */ }
@@ -128,7 +144,7 @@ export default function EditProductModal({ product, token, isDark, role, onClose
 
   const handleDeletePhoto = async () => {
     try {
-      await axios.delete(`/products/${product.id}/photo`, { headers })
+      await api.delete(`/products/${product.id}/photo`)
       setPhotoUrl(null)
       onUpdate({ ...product, photo_url: null })
     } catch { /* silent */ }
@@ -344,7 +360,60 @@ export default function EditProductModal({ product, token, isDark, role, onClose
                 {saving ? 'Сохранение...' : '✅ Сохранить изменения'}
               </button>
 
-              <div style={{ background: card, borderRadius: 16, padding: '14px 16px', border: `1px solid ${border}` }}>
+                            {/* История цен закупки */}
+              <div style={{ background: card, borderRadius: 16, border: `1px solid ${border}`, overflow: 'hidden' }}>
+                <button onClick={toggleHistory} style={{
+                  width: '100%', background: 'none', border: 'none', padding: '14px 16px',
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  cursor: 'pointer', color: isDark ? '#fff' : '#1a1a1a',
+                }}>
+                  <span style={{ fontSize: 13, fontWeight: 700 }}>📊 История цен закупки</span>
+                  <span style={{ fontSize: 18, color: muted }}>{historyOpen ? '▲' : '▼'}</span>
+                </button>
+                {historyOpen && (
+                  <div style={{ padding: '0 16px 14px', borderTop: `1px solid ${border}` }}>
+                    {historyLoading ? (
+                      <div style={{ textAlign: 'center', padding: 16, color: muted, fontSize: 13 }}>Загрузка...</div>
+                    ) : !priceHistory || priceHistory.items.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: 16, color: muted, fontSize: 13 }}>Приёмок ещё не было</div>
+                    ) : (
+                      <>
+                        {priceHistory.items.map((r, idx) => (
+                          <div key={r.id} style={{ padding: '10px 0', borderBottom: idx < priceHistory.items.length - 1 ? `1px solid ${border}` : 'none' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontSize: 14, fontWeight: 700, color: isDark ? '#fff' : '#1a1a1a' }}>
+                                {r.purchase_price.toLocaleString('ru-RU')} сум
+                              </span>
+                              <span style={{ fontSize: 12, color: '#1a6b3c', fontWeight: 600 }}>+{r.quantity} шт</span>
+                            </div>
+                            <div style={{ fontSize: 11, color: muted, marginTop: 3 }}>{r.supplier_name} · {r.storekeeper}</div>
+                            <div style={{ fontSize: 11, color: muted }}>
+                              {new Date(r.created_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                            </div>
+                          </div>
+                        ))}
+                        {priceHistory.pages > 1 && (
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, gap: 8 }}>
+                            <button onClick={() => loadHistory(historyPage - 1)} disabled={historyPage <= 1}
+                              style={{ flex: 1, padding: '8px 0', background: historyPage <= 1 ? (isDark ? '#2a2a2a' : '#f0f0f0') : '#1a4b8c',
+                              color: historyPage <= 1 ? muted : '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: historyPage <= 1 ? 'default' : 'pointer' }}>
+                              ← Назад
+                            </button>
+                            <span style={{ fontSize: 12, color: muted, whiteSpace: 'nowrap' }}>{historyPage} / {priceHistory.pages}</span>
+                            <button onClick={() => loadHistory(historyPage + 1)} disabled={historyPage >= priceHistory.pages}
+                              style={{ flex: 1, padding: '8px 0', background: historyPage >= priceHistory.pages ? (isDark ? '#2a2a2a' : '#f0f0f0') : '#1a4b8c',
+                              color: historyPage >= priceHistory.pages ? muted : '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: historyPage >= priceHistory.pages ? 'default' : 'pointer' }}>
+                              Вперёд →
+                            </button>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+
+<div style={{ background: card, borderRadius: 16, padding: '14px 16px', border: `1px solid ${border}` }}>
                 <div style={{ fontSize: 12, color: muted, marginBottom: 10 }}>
                   Удаление товара невозможно отменить. Товар не удалится если есть связанные продажи.
                 </div>
