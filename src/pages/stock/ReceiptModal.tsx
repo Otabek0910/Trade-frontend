@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import axios, { AxiosError } from 'axios'
+import type { AxiosError } from 'axios'
+import api from '../../api'
 
 interface Product {
   id: number; name: string; sku: string
@@ -9,13 +10,14 @@ interface Supplier { id: number; name: string }
 
 interface Props {
   token: string
+  role: string
   product: Product
   isDark: boolean
   onClose: () => void
   onSuccess: () => void
 }
 
-export default function ReceiptModal({ token, product, isDark, onClose, onSuccess }: Props) {
+export default function ReceiptModal({ token, role, product, isDark, onClose, onSuccess }: Props) {
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -29,7 +31,7 @@ export default function ReceiptModal({ token, product, isDark, onClose, onSucces
   })
 
   useEffect(() => {
-    axios.get('/suppliers', { headers: { Authorization: `Bearer ${token}` } })
+    api.get('/suppliers')
       .then(r => setSuppliers(r.data))
   }, [token])
 
@@ -50,13 +52,13 @@ export default function ReceiptModal({ token, product, isDark, onClose, onSucces
     setLoading(true)
     setError('')
     try {
-      const res = await axios.post('/receipts', {
+      const res = await api.post('/receipts', {
         product_id: product.id,
         supplier_id: parseInt(form.supplier_id),
         quantity: parseInt(form.quantity),
         purchase_price: parseFloat(form.purchase_price),
         paid_amount: form.paid_amount !== '' ? parseFloat(form.paid_amount) : null,
-      }, { headers: { Authorization: `Bearer ${token}` } })
+      })
       setSuccess(res.data.message)
       setTimeout(onSuccess, 1400)
     } catch (err) {
@@ -125,9 +127,20 @@ export default function ReceiptModal({ token, product, isDark, onClose, onSucces
                   value={form.quantity} onChange={e => set('quantity', e.target.value)} />
               </div>
               <div>
-                <label style={labelStyle}>Цена закупки *</label>
-                <input style={inputStyle} type="number" placeholder="0"
-                  value={form.purchase_price} onChange={e => set('purchase_price', e.target.value)} />
+                <label style={labelStyle}>Цена закупки *
+                  {product.purchase_price > 0 && (role === 'owner_business' || role === 'developer') && (
+                    <span style={{ fontWeight: 400, color: '#f59e0b', marginLeft: 6 }}>⚠️ изменение отразится в истории</span>
+                  )}
+                </label>
+                {product.purchase_price > 0 && role !== 'developer' && role !== 'owner_business' ? (
+                  <div style={{ ...inputStyle, background: isDark ? '#2a2a2a' : '#f0f0f0', color: isDark ? '#777' : '#aaa', cursor: 'not-allowed', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span>{form.purchase_price}</span>
+                    <span style={{ fontSize: 12 }}>🔒</span>
+                  </div>
+                ) : (
+                  <input style={inputStyle} type="number" placeholder="0"
+                    value={form.purchase_price} onChange={e => set('purchase_price', e.target.value)} />
+                )}
               </div>
             </div>
 

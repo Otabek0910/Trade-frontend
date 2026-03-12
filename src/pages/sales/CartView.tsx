@@ -10,6 +10,7 @@ interface Props {
   cart: CartItem[]
   customer: Customer | null
   token: string
+  role: string
   isDark: boolean
   onBack: () => void
   onRemove: (id: number) => void
@@ -23,7 +24,7 @@ interface Props {
 }
 
 export default function CartView({
-  cart, customer, token, isDark, onBack, onRemove,
+  cart, customer, token, role, isDark, onBack, onRemove,
   onUpdateQty, onUpdatePrice, onSelectCustomer, onSuccess,
   showCustomerSelect, onCloseCustomerSelect, onCustomerSelected,
 }: Props) {
@@ -172,9 +173,20 @@ export default function CartView({
                   <input
                     type="number"
                     value={item.selling_price}
-                    onChange={e => onUpdatePrice(item.product_id, parseFloat(e.target.value) || 0)}
-                    style={{ ...inputStyle, width: 110, padding: '5px 10px', fontSize: 13 }}
+                    onChange={e => {
+                      const val = parseFloat(e.target.value) || 0
+                      const minPrice = role === 'seller' ? (item.purchase_price ?? 0) : 0
+                      onUpdatePrice(item.product_id, Math.max(val, minPrice))
+                    }}
+                    style={{
+                      ...inputStyle, width: 110, padding: '5px 10px', fontSize: 13,
+                      borderColor: role === 'seller' && item.purchase_price && item.selling_price < item.purchase_price
+                        ? '#ff3b30' : undefined
+                    }}
                   />
+                  {role === 'seller' && item.purchase_price && item.selling_price <= item.purchase_price && (
+                    <div style={{ fontSize: 10, color: '#ff3b30', marginTop: 2 }}>мин. цена</div>
+                  )}
                   <div style={{ marginLeft: 'auto', fontSize: 14, fontWeight: 700, color: text, flexShrink: 0 }}>
                     {(item.selling_price * item.quantity).toLocaleString()}
                   </div>

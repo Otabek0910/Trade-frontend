@@ -11,7 +11,7 @@ interface Product {
   brand: string | null          // ← Марка
   unit: string                  // ← Единица (шт/л/кг/м/уп...)
   unit_value: number | null     // ← Объём упаковки (3 для канистры 3л)
-  selling_price: number; current_stock: number; low_stock: boolean
+  purchase_price: number; selling_price: number; current_stock: number; low_stock: boolean
 }
 export interface CartItem {
   product_id: number
@@ -21,6 +21,7 @@ export interface CartItem {
   unit_value: number | null
   quantity: number
   selling_price: number
+  purchase_price: number
   max_stock: number
 }
 export interface Customer {
@@ -47,7 +48,7 @@ type Tab = 'products' | 'history'
 type ViewMode = 'products' | 'cart'
 
 export default function SalesPage() {
-  const { token } = useAuth()
+  const { token, user } = useAuth()
   const navigate = useNavigate()
   const tg = window.Telegram?.WebApp
   const isDark = tg?.colorScheme === 'dark'
@@ -102,6 +103,7 @@ export default function SalesPage() {
         unit_value: product.unit_value,
         quantity: 1,
         selling_price: product.selling_price,
+        purchase_price: product.purchase_price,
         max_stock: product.current_stock,
       }]
     })
@@ -127,7 +129,7 @@ export default function SalesPage() {
   if (view === 'cart') {
     return (
       <CartView
-        cart={cart} customer={selectedCustomer} token={token!} isDark={isDark}
+        cart={cart} customer={selectedCustomer} token={token!} role={user?.role ?? ''} isDark={isDark}
         onBack={() => setView('products')} onRemove={removeFromCart}
         onUpdateQty={updateQty} onUpdatePrice={updatePrice}
         onSelectCustomer={() => setShowCustomerSelect(true)}

@@ -120,7 +120,7 @@ export default function MainMenu() {
 
   useEffect(() => {
     if (!token) return
-    api.get('/dashboard/quick-stats', { headers: { Authorization: `Bearer ${token}` } })
+    api.get('/dashboard/quick-stats')
       .then(r => setQuickStats(r.data))
       .catch(() => {})
   }, [token])
@@ -205,7 +205,7 @@ export default function MainMenu() {
       <div style={{ margin: '0 20px 16px', background: isDark ? '#2a2a2a' : '#fff', borderRadius: 16, padding: '14px 18px', display: 'flex', justifyContent: 'space-around' }}>
         {[
           {
-            label: 'Сегодня',
+            label: user?.role === 'seller' ? 'Мои продажи' : 'Сегодня',
             value: quickStats ? fmt(quickStats.today_revenue) : '—',
             icon: '📈',
             color: '#1a6b3c',
@@ -217,7 +217,7 @@ export default function MainMenu() {
             color: quickStats && quickStats.low_stock_count > 0 ? '#ff3b30' : '#34c759',
           },
           {
-            label: 'Долги',
+            label: user?.role === 'seller' ? 'Мой долг' : 'Долги',
             value: quickStats ? (quickStats.total_debt > 0 ? fmt(quickStats.total_debt) : '0') : '—',
             icon: '⏳',
             color: quickStats && quickStats.total_debt > 0 ? '#ff3b30' : '#34c759',

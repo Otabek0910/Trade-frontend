@@ -274,7 +274,7 @@ export default function StockPage() {
 
       {showReceipt && receiptProduct && (
         <ReceiptModal
-          token={token!} product={receiptProduct} isDark={isDark}
+          token={token!} role={user?.role ?? ''} product={receiptProduct} isDark={isDark}
           onClose={() => { setShowReceipt(false); setReceiptProduct(null) }}
           onSuccess={() => { setShowReceipt(false); setReceiptProduct(null); refresh() }}
         />
@@ -284,8 +284,8 @@ export default function StockPage() {
         <EditProductModal
           product={editProduct}
           token={token!}
-          isDark={isDark}
           role={user?.role ?? ''}
+          isDark={isDark}
           onClose={() => setEditProduct(null)}
           onUpdate={handleProductUpdated}
           onDelete={handleProductDeleted}
