@@ -5,14 +5,15 @@ import type { TelegramUser } from '../contexts/AuthContext'
 interface ProtectedRouteProps {
   children: React.ReactNode
   roles?: TelegramUser['role'][]
+  strict?: boolean  // если true — isAdmin не обходит проверку ролей
 }
 
-export default function ProtectedRoute({ children, roles }: ProtectedRouteProps) {
+export default function ProtectedRoute({ children, roles, strict = false }: ProtectedRouteProps) {
   const { user } = useAuth()
 
   if (!user) return <Navigate to="/login" replace />
 
-  const isAdmin = user.role === 'developer' || user.role === 'owner_business'
+  const isAdmin = !strict && (user.role === 'developer' || user.role === 'owner_business')
   if (roles && !isAdmin && !roles.includes(user.role)) {
     return (
       <div style={{

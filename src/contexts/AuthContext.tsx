@@ -20,30 +20,34 @@ interface AuthContextType extends AuthState {
 
 const AuthContext = createContext<AuthContextType | null>(null)
 
-function loadAuth(): AuthState {
-  try {
-    const token = localStorage.getItem('access_token')
-    const userRaw = localStorage.getItem('tg_user')
-    if (token && userRaw) return { token, user: JSON.parse(userRaw) }
-  } catch {
-    return { user: null, token: null }
-  }
-  return { user: null, token: null }
-}
-
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [auth, setAuth] = useState<AuthState>(loadAuth)
+  const [auth, setAuth] = useState<AuthState>(() => {
+    // Восстанавливаем сессию из localStorage при старте
+    try {
+      const token = localStorage.getItem('access_token')
+      const raw = localStorage.getItem('tg_user')
+      if (token && raw) {
+        const user = JSON.parse(raw) as TelegramUser
+        return { user, token }
+      }
+    } catch { /* localStorage недоступен или данные повреждены */ }
+    return { user: null, token: null }
+  })
 
   const login = (user: TelegramUser, token: string) => {
     localStorage.setItem('access_token', token)
     localStorage.setItem('tg_user', JSON.stringify(user))
     setAuth({ user, token })
   }
+
   const logout = () => {
     localStorage.removeItem('access_token')
     localStorage.removeItem('tg_user')
     setAuth({ user: null, token: null })
   }
+
+  // Слушаем 401 от api.ts — он чистит localStorage и делает reload
+  // После reload useState инициализируется из пустого localStorage → пользователь видит LoginScreen
 
   const hasRole = (...roles: TelegramUser['role'][]) => {
     if (!auth.user) return false
