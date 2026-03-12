@@ -109,7 +109,7 @@ const MENU_ITEMS: MenuItem[] = [
 ]
 
 export default function MainMenu() {
-  const { user, hasRole, token } = useAuth()
+  const { user, token } = useAuth()
   const navigate = useNavigate()
   const tg = window.Telegram?.WebApp
   const isDark = tg?.colorScheme === 'dark'
@@ -129,7 +129,7 @@ export default function MainMenu() {
     n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}М` :
     n >= 1_000 ? `${(n / 1_000).toFixed(0)}К` : String(Math.round(n))
 
-  const availableItems = MENU_ITEMS.filter(item => hasRole(...item.roles))
+  const availableItems = MENU_ITEMS.filter(item => user?.role && item.roles.includes(user.role as typeof item.roles[number]))
 
   const handleTap = (item: MenuItem) => {
     tg?.HapticFeedback?.impactOccurred('light')

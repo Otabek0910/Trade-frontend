@@ -62,7 +62,11 @@ export default function CartView({
     padding: '11px 14px', fontSize: 15, color: text, outline: 'none',
   }
 
+  const totalPurchaseCost = cart.reduce((s, i) => s + (i.purchase_price ?? 0) * i.quantity, 0)
+  const isBelowCost = role === 'seller' && total < totalPurchaseCost
+
   const handleConfirm = async () => {
+    if (isBelowCost) return
     if (cart.length === 0) return
     setLoading(true)
     setError('')
@@ -236,7 +240,19 @@ export default function CartView({
           <div style={{ fontSize: 12, fontWeight: 700, color: muted, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>Скидка</div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <input type="number" min="0" max="100" placeholder="0"
-              value={discount} onChange={e => setDiscount(e.target.value)}
+              value={discount} onChange={e => {
+                const val = parseFloat(e.target.value) || 0
+                if (role === 'seller' && val > 0) {
+                  // Найдём максимальную допустимую скидку для продавца
+                  const maxAllowed = cart.reduce((minPct, item) => {
+                    if (!item.purchase_price || item.purchase_price <= 0) return minPct
+                    const maxForItem = Math.floor((1 - item.purchase_price / item.selling_price) * 100)
+                    return Math.min(minPct, maxForItem)
+                  }, 100)
+                  if (val > maxAllowed) { setDiscount(String(Math.max(0, maxAllowed))); return }
+                }
+                setDiscount(e.target.value)
+              }}
               style={{ ...inputStyle, width: 80 }}
             />
             <span style={{ color: muted, fontSize: 14 }}>%</span>
@@ -301,8 +317,8 @@ export default function CartView({
         )}
 
         {/* Confirm */}
-        <button onClick={handleConfirm} disabled={loading || !!success || sellerDiscountWarning} style={{
-          width: '100%', background: success ? '#34c759' : loading ? '#555' : sellerDiscountWarning ? '#888' : 'linear-gradient(135deg, #1a4b8c, #2d6fd4)',
+        <button onClick={handleConfirm} disabled={loading || !!success || sellerDiscountWarning || isBelowCost} style={{
+          width: '100%', background: success ? '#34c759' : loading ? '#555' : sellerDiscountWarning || isBelowCost ? '#888' : 'linear-gradient(135deg, #1a4b8c, #2d6fd4)',
           border: 'none', borderRadius: 16, padding: 16, color: '#fff',
           fontSize: 17, fontWeight: 800, cursor: 'pointer',
           boxShadow: '0 4px 20px rgba(26,75,140,0.4)',
