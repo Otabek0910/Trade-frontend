@@ -1,15 +1,15 @@
 import { useState } from 'react'
-import axios, { AxiosError } from 'axios'
+import type { AxiosError } from 'axios'
+import api from '../../api'
 import type { Supplier } from '../SuppliersPage'
 
 interface Props {
-  token: string
   isDark: boolean
   onClose: () => void
   onSuccess: (s: Supplier) => void
 }
 
-export default function AddSupplierModal({ token, isDark, onClose, onSuccess }: Props) {
+export default function AddSupplierModal({ isDark, onClose, onSuccess }: Props) {
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
   const [address, setAddress] = useState('')
@@ -21,9 +21,8 @@ export default function AddSupplierModal({ token, isDark, onClose, onSuccess }: 
     if (!name) { setError('Введите название'); return }
     setLoading(true); setError('')
     try {
-      const res = await axios.post('/suppliers',
-        { name, phone: phone || null, address: address || null, notes: notes || null },
-        { headers: { Authorization: `Bearer ${token}` } }
+      const res = await api.post('/suppliers',
+        { name, phone: phone || null, address: address || null, notes: notes || null }
       )
       onSuccess(res.data)
     } catch (err) {

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../api'
-import { useAuth } from '../contexts/AuthContext'
+// useAuth removed - token handled by api.ts interceptor
 import { unitDisplay } from './sales/unitHelpers'
 
 interface PeriodStats {
@@ -65,7 +65,6 @@ function MiniBar({ value, max, color }: { value: number; max: number; color: str
 }
 
 export default function DashboardPage() {
-  const { token } = useAuth()
   const navigate = useNavigate()
   const tg = window.Telegram?.WebApp
   const isDark = tg?.colorScheme === 'dark'
@@ -87,17 +86,17 @@ export default function DashboardPage() {
 
   useEffect(() => {
     let cancelled = false
-    api.get('/dashboard', { headers: { Authorization: `Bearer ${token}` } })
+    api.get('/dashboard')
       .then(r => { if (!cancelled) { setData(r.data); setLoading(false) } })
       .catch(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [token])
+  }, [])
 
 
   const handleReset = async () => {
     setResetting(true)
     try {
-      await api.post('/export/reset', {}, { headers: { Authorization: `Bearer ${token}` } })
+      await api.post('/export/reset', {})
       setConfirmReset(false)
       navigate('/')  // не reload — чтобы не потерять токен
     } catch (err: unknown) {
@@ -111,7 +110,6 @@ export default function DashboardPage() {
     setBackingUp(true)
     try {
       const res = await api.get('/export/db-backup', {
-        headers: { Authorization: `Bearer ${token}` },
         responseType: 'blob',
       })
       const url = URL.createObjectURL(new Blob([res.data]))
@@ -134,9 +132,7 @@ export default function DashboardPage() {
     try {
       const form = new FormData()
       form.append('file', file)
-      await api.post('/export/db-restore', form, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
+      await api.post('/export/db-restore', form)
       setImportResult('✅ БД восстановлена! Перезайдите в приложение.')
       setTimeout(() => navigate('/'), 3000)
     } catch (err: unknown) {
@@ -151,11 +147,11 @@ export default function DashboardPage() {
     setExporting(true); setExportSuccess('')
     try {
       if (isMobileTg) {
-        await api.get(`/export/send?days=${exportDays}`, { headers: { Authorization: `Bearer ${token}` } })
+        await api.get(`/export/send?days=${exportDays}`)
         setExportSuccess('✅ Файл отправлен в Telegram!')
         setTimeout(() => setExportSuccess(''), 4000)
       } else {
-        const res = await api.get(`/export?days=${exportDays}`, { headers: { Authorization: `Bearer ${token}` }, responseType: 'blob' })
+        const res = await api.get(`/export?days=${exportDays}`, { responseType: 'blob' })
         const url = window.URL.createObjectURL(new Blob([res.data]))
         const a = document.createElement('a'); a.href = url
         a.download = `trade_report_${new Date().toISOString().slice(0,10)}.xlsx`; a.click()

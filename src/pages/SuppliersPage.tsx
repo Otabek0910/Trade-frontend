@@ -33,7 +33,7 @@ export default function SuppliersPage() {
 
   useEffect(() => {
     let cancelled = false
-    api.get('/suppliers', { headers: { Authorization: `Bearer ${token}` } })
+    api.get('/suppliers')
       .then(r => { if (!cancelled) { setSuppliers(r.data); setLoading(false) } })
       .catch(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
@@ -95,7 +95,6 @@ export default function SuppliersPage() {
             border: `1px solid ${border}`, cursor: 'pointer', textAlign: 'left',
             display: 'flex', alignItems: 'center', gap: 12,
           }}>
-            {/* Avatar — фото или эмодзи */}
             <div style={{
               width: 44, height: 44, borderRadius: 14, flexShrink: 0,
               background: '#7a3b8c20',
@@ -151,7 +150,7 @@ export default function SuppliersPage() {
       )}
 
       {showAdd && (
-        <AddSupplierModal token={token!} isDark={isDark}
+        <AddSupplierModal isDark={isDark}
           onClose={() => setShowAdd(false)}
           onSuccess={(s) => { setSuppliers(prev => [...prev, s]); setShowAdd(false) }}
         />
