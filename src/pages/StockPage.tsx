@@ -26,7 +26,7 @@ export interface Product {
 }
 
 export default function StockPage() {
-  const { token } = useAuth()
+  const { token, user } = useAuth()
   const navigate = useNavigate()
   const tg = window.Telegram?.WebApp
   const isDark = tg?.colorScheme === 'dark'
@@ -285,6 +285,7 @@ export default function StockPage() {
           product={editProduct}
           token={token!}
           isDark={isDark}
+          role={user?.role ?? ''}
           onClose={() => setEditProduct(null)}
           onUpdate={handleProductUpdated}
           onDelete={handleProductDeleted}

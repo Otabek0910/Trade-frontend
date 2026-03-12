@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import axios, { AxiosError } from 'axios'
+import api from '../api'
+import type { AxiosError } from 'axios'
 import { useAuth } from '../contexts/AuthContext'
 
 interface AppUser {
@@ -30,7 +31,7 @@ const ROLE_COLORS: Record<string, string> = {
 const ALL_ROLES = ['owner_business', 'seller', 'storekeeper']
 
 export default function UsersPage() {
-  const { token } = useAuth()
+  const { token, user: currentUser } = useAuth()
   const navigate = useNavigate()
   const tg = window.Telegram?.WebApp
   const isDark = tg?.colorScheme === 'dark'
@@ -45,7 +46,7 @@ export default function UsersPage() {
 
   useEffect(() => {
     let cancelled = false
-    axios.get('/users', { headers: { Authorization: `Bearer ${token}` } })
+    api.get('/users')
       .then(r => { if (!cancelled) { setUsers(r.data); setLoading(false) } })
       .catch(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
@@ -55,9 +56,7 @@ export default function UsersPage() {
     setSaving(true)
     setError(prev => ({ ...prev, [userId]: '' }))
     try {
-      const res = await axios.patch(`/users/${userId}`, patch, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
+      const res = await api.patch(`/users/${userId}`, patch)
       setUsers(prev => prev.map(u => u.id === userId ? res.data : u))
       setEditingId(null)
     } catch (err) {
@@ -70,9 +69,7 @@ export default function UsersPage() {
   const handleApprove = async (userId: number) => {
     setApprovingId(userId)
     try {
-      const res = await axios.post(`/users/${userId}/approve`, {}, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
+      const res = await api.post(`/users/${userId}/approve`, {})
       setUsers(prev => prev.map(u => u.id === userId ? res.data : u))
       tg?.HapticFeedback?.notificationOccurred('success')
     } catch (err) {
@@ -85,9 +82,7 @@ export default function UsersPage() {
   const handleReject = async (userId: number) => {
     setApprovingId(userId)
     try {
-      await axios.post(`/users/${userId}/reject`, {}, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
+      await api.post(`/users/${userId}/reject`, {})
       setUsers(prev => prev.filter(u => u.id !== userId))
       tg?.HapticFeedback?.notificationOccurred('warning')
     } catch (err) {
@@ -99,7 +94,7 @@ export default function UsersPage() {
 
   const handleDelete = async (userId: number) => {
     try {
-      await axios.delete(`/users/${userId}`, { headers: { Authorization: `Bearer ${token}` } })
+      await api.delete(`/users/${userId}`)
       setUsers(prev => prev.filter(u => u.id !== userId))
       setConfirmDeleteId(null)
       tg?.HapticFeedback?.notificationOccurred('success')
@@ -123,6 +118,8 @@ export default function UsersPage() {
   const renderUser = (u: AppUser) => {
     const isEditing = editingId === u.id
     const isDeveloper = u.role === 'developer'
+    const isOwner = u.role === 'owner_business'
+    const canManage = currentUser?.role === 'developer' || !isOwner
     const isPending = u.status === 'pending'
     const isBlocked = u.status === 'blocked'
     const isApproving = approvingId === u.id
@@ -207,7 +204,7 @@ export default function UsersPage() {
         )}
 
         {/* Active/Blocked — управление */}
-        {!isPending && !isDeveloper && (
+        {!isPending && !isDeveloper && canManage && (
           <>
             {!isEditing ? (
               <button onClick={() => setEditingId(u.id)} style={{

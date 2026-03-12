@@ -101,7 +101,7 @@ const MENU_ITEMS: MenuItem[] = [
   
   {
   id: 'audit', icon: '📋', label: 'Журнал', sublabel: 'История событий',
-  path: '/audit', roles: ['developer', 'owner_business'],
+  path: '/audit', roles: ['developer'],
   color: '#4a6b8c', colorDark: '#2a3d52',
   },
 

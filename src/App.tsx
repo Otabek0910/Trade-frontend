@@ -169,7 +169,7 @@ function AppRoutes() {
       } />
 
       <Route path="/audit" element={
-        <ProtectedRoute roles={['owner_business', 'developer']}>
+        <ProtectedRoute roles={['developer']}>
           <AuditPage />
         </ProtectedRoute>
       } />

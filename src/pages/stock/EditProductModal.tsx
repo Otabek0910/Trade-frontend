@@ -26,6 +26,7 @@ interface Props {
   product: Product
   token: string
   isDark: boolean
+  role: string
   onClose: () => void
   onUpdate: (p: Product) => void
   onDelete: (id: number) => void
@@ -33,7 +34,7 @@ interface Props {
 
 const UNITS = ['шт', 'л', 'кг', 'м', 'м²', 'уп', 'пар', 'рул']
 
-export default function EditProductModal({ product, token, isDark, onClose, onUpdate, onDelete }: Props) {
+export default function EditProductModal({ product, token, isDark, role, onClose, onUpdate, onDelete }: Props) {
   const headers = { Authorization: `Bearer ${token}` }
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [saving, setSaving] = useState(false)
@@ -297,7 +298,14 @@ export default function EditProductModal({ product, token, isDark, onClose, onUp
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <div>
                   <label style={labelStyle}>Цена закупки</label>
-                  <input style={inputStyle} type="number" value={form.purchase_price} onChange={e => set('purchase_price', e.target.value)} inputMode="decimal" />
+                  {product.purchase_price > 0 && role !== 'developer' ? (
+                    <div style={{ ...inputStyle, background: isDark ? '#2a2a2a' : '#f0f0f0', color: isDark ? '#777' : '#aaa', cursor: 'not-allowed', display: 'flex', alignItems: 'center' }}>
+                      {form.purchase_price}
+                      <span style={{ fontSize: 10, marginLeft: 6, color: isDark ? '#555' : '#bbb' }}>🔒</span>
+                    </div>
+                  ) : (
+                    <input style={inputStyle} type="number" value={form.purchase_price} onChange={e => set('purchase_price', e.target.value)} inputMode="decimal" />
+                  )}
                 </div>
                 <div>
                   <label style={labelStyle}>Цена продажи</label>
