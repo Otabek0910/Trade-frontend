@@ -80,7 +80,7 @@ export default function StockPage() {
   }
 
   const lowStockCount = products.filter(p => p.low_stock).length
-  const PSIZE = 6
+  const PSIZE = 4
   const totalPages = Math.ceil(products.length / PSIZE)
   const pagedProducts = products.slice((page - 1) * PSIZE, page * PSIZE)
 
@@ -255,6 +255,17 @@ export default function StockPage() {
             ))}
           </div>
 
+          {/* Пагинация товаров */}
+          {totalPages > 1 && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, padding: '8px 0 4px' }}>
+              <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
+                style={{ padding: '8px 20px', borderRadius: 10, border: 'none', background: page <= 1 ? (isDark ? '#2a2a2a' : '#f0f0f0') : '#1a6b3c', color: page <= 1 ? muted : '#fff', fontWeight: 700, fontSize: 14, cursor: page <= 1 ? 'default' : 'pointer' }}>←</button>
+              <span style={{ fontSize: 13, color: muted, fontWeight: 600 }}>{page} / {totalPages}</span>
+              <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
+                style={{ padding: '8px 20px', borderRadius: 10, border: 'none', background: page >= totalPages ? (isDark ? '#2a2a2a' : '#f0f0f0') : '#1a6b3c', color: page >= totalPages ? muted : '#fff', fontWeight: 700, fontSize: 14, cursor: page >= totalPages ? 'default' : 'pointer' }}>→</button>
+            </div>
+          )}
+
           {/* Отступ снизу чтобы список не перекрывался фиксированной кнопкой */}
           <div style={{ height: 80 }} />
         </>
@@ -283,20 +294,6 @@ export default function StockPage() {
         />
       )}
 
-      {/* Пагинация товаров */}
-      {tab === 'list' && totalPages > 1 && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, padding: '12px 16px 8px' }}>
-          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
-            style={{ padding: '8px 18px', borderRadius: 10, border: 'none', background: page <= 1 ? (isDark ? '#2a2a2a' : '#f0f0f0') : '#1a6b3c', color: page <= 1 ? muted : '#fff', fontWeight: 700, fontSize: 14, cursor: page <= 1 ? 'default' : 'pointer' }}>
-            ←
-          </button>
-          <span style={{ fontSize: 13, color: muted, fontWeight: 600 }}>{page} / {totalPages}</span>
-          <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
-            style={{ padding: '8px 18px', borderRadius: 10, border: 'none', background: page >= totalPages ? (isDark ? '#2a2a2a' : '#f0f0f0') : '#1a6b3c', color: page >= totalPages ? muted : '#fff', fontWeight: 700, fontSize: 14, cursor: page >= totalPages ? 'default' : 'pointer' }}>
-            →
-          </button>
-        </div>
-      )}
 
       {showReceipt && receiptProduct && (
         <ReceiptModal
