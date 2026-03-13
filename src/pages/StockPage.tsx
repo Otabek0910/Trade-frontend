@@ -41,6 +41,7 @@ export default function StockPage() {
   const [receiptProduct, setReceiptProduct] = useState<Product | null>(null)
   const [tab, setTab] = useState<'list' | 'history'>('list')
   const [refreshKey, setRefreshKey] = useState(0)
+  const [page, setPage] = useState(1)
 
   useEffect(() => {
     Promise.resolve().then(() => setLoading(true))
@@ -62,6 +63,7 @@ export default function StockPage() {
       .finally(() => { if (!cancelled) setLoading(false) })
 
     return () => { cancelled = true }
+    setPage(1)
   }, [token, search, filterLow, refreshKey])
 
   const refresh = () => setRefreshKey(k => k + 1)
@@ -78,6 +80,9 @@ export default function StockPage() {
   }
 
   const lowStockCount = products.filter(p => p.low_stock).length
+  const PSIZE = 6
+  const totalPages = Math.ceil(products.length / PSIZE)
+  const pagedProducts = products.slice((page - 1) * PSIZE, page * PSIZE)
 
   const bg     = isDark ? '#1a1a1a' : '#f0f2f5'
   const card   = isDark ? '#242424' : '#ffffff'
@@ -157,7 +162,7 @@ export default function StockPage() {
                 <div style={{ fontSize: 40, marginBottom: 12 }}>📭</div>
                 <div style={{ color: muted, fontSize: 15 }}>Товаров нет</div>
               </div>
-            ) : products.map(p => (
+            ) : pagedProducts.map(p => (
               <div
                 key={p.id}
                 onClick={() => setEditProduct(p)}
@@ -250,18 +255,24 @@ export default function StockPage() {
             ))}
           </div>
 
-          <div style={{ padding: '16px 16px 0' }}>
-            <button onClick={() => setShowAddProduct(true)} style={{
-              width: '100%', background: 'linear-gradient(135deg, #1a6b3c, #2d9c5c)',
-              border: 'none', borderRadius: 16, padding: 15, color: '#fff',
-              fontSize: 16, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 16px rgba(26,107,60,0.35)',
-            }}>
-              + Добавить товар
-            </button>
-          </div>
+          {/* Отступ снизу чтобы список не перекрывался фиксированной кнопкой */}
+          <div style={{ height: 80 }} />
         </>
       ) : (
         <ReceiptHistoryTab token={token!} isDark={isDark} card={card} text={text} muted={muted} border={border} />
+      )}
+
+      {/* Фиксированная кнопка "+ Добавить товар" */}
+      {tab === 'list' && (
+        <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, padding: '12px 16px', background: isDark ? 'rgba(26,26,26,0.95)' : 'rgba(255,255,255,0.95)', backdropFilter: 'blur(10px)', zIndex: 40, borderTop: `1px solid ${border}` }}>
+          <button onClick={() => setShowAddProduct(true)} style={{
+            width: '100%', background: 'linear-gradient(135deg, #1a6b3c, #2d9c5c)',
+            border: 'none', borderRadius: 16, padding: 15, color: '#fff',
+            fontSize: 16, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 16px rgba(26,107,60,0.35)',
+          }}>
+            + Добавить товар
+          </button>
+        </div>
       )}
 
       {showAddProduct && (
@@ -270,6 +281,21 @@ export default function StockPage() {
           onClose={() => setShowAddProduct(false)}
           onSuccess={() => { setShowAddProduct(false); refresh() }}
         />
+      )}
+
+      {/* Пагинация товаров */}
+      {tab === 'list' && totalPages > 1 && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, padding: '12px 16px 8px' }}>
+          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
+            style={{ padding: '8px 18px', borderRadius: 10, border: 'none', background: page <= 1 ? (isDark ? '#2a2a2a' : '#f0f0f0') : '#1a6b3c', color: page <= 1 ? muted : '#fff', fontWeight: 700, fontSize: 14, cursor: page <= 1 ? 'default' : 'pointer' }}>
+            ←
+          </button>
+          <span style={{ fontSize: 13, color: muted, fontWeight: 600 }}>{page} / {totalPages}</span>
+          <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
+            style={{ padding: '8px 18px', borderRadius: 10, border: 'none', background: page >= totalPages ? (isDark ? '#2a2a2a' : '#f0f0f0') : '#1a6b3c', color: page >= totalPages ? muted : '#fff', fontWeight: 700, fontSize: 14, cursor: page >= totalPages ? 'default' : 'pointer' }}>
+            →
+          </button>
+        </div>
       )}
 
       {showReceipt && receiptProduct && (
@@ -296,7 +322,7 @@ export default function StockPage() {
 }
 
 // ─── История приёмок ──────────────────────────────────────────────────────────
-function ReceiptHistoryTab({ token, card, text, muted, border }: {
+function ReceiptHistoryTab({ token, card, text, muted, border, isDark }: {
   token: string; isDark: boolean; card: string; text: string; muted: string; border: string
 }) {
   const [history, setHistory] = useState<Array<{
@@ -304,11 +330,14 @@ function ReceiptHistoryTab({ token, card, text, muted, border }: {
     quantity: number; purchase_price: number; storekeeper: string; created_at: string
   }>>([])
   const [loading, setLoading] = useState(true)
+  const [rPage, setRPage] = useState(1)
+  const RSIZE = 6
+  const rTotalPages = Math.ceil(history.length / RSIZE)
+  const pagedHistory = history.slice((rPage - 1) * RSIZE, rPage * RSIZE)
 
   useEffect(() => {
     let cancelled = false
-    api
-      .get('/receipts', { headers: { Authorization: `Bearer ${token}` } })
+    api.get('/receipts')
       .then(r => { if (!cancelled) setHistory(r.data) })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false) })
@@ -324,7 +353,7 @@ function ReceiptHistoryTab({ token, card, text, muted, border }: {
           <div style={{ fontSize: 40, marginBottom: 12 }}>📭</div>
           <div style={{ color: muted }}>Приёмок ещё не было</div>
         </div>
-      ) : history.map(r => (
+      ) : pagedHistory.map(r => (
         <div key={r.id} style={{ background: card, borderRadius: 14, padding: '12px 14px', border: `1px solid ${border}` }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
             <div style={{ fontSize: 14, fontWeight: 700, color: text }}>{r.product_name}</div>
@@ -338,6 +367,15 @@ function ReceiptHistoryTab({ token, card, text, muted, border }: {
           </div>
         </div>
       ))}
+      {rTotalPages > 1 && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, paddingTop: 8 }}>
+          <button onClick={() => setRPage(p => Math.max(1, p - 1))} disabled={rPage <= 1}
+            style={{ padding: '8px 18px', borderRadius: 10, border: 'none', background: rPage <= 1 ? (isDark ? '#2a2a2a' : '#f0f0f0') : '#1a6b3c', color: rPage <= 1 ? muted : '#fff', fontWeight: 700, fontSize: 14, cursor: rPage <= 1 ? 'default' : 'pointer' }}>←</button>
+          <span style={{ fontSize: 13, color: muted, fontWeight: 600 }}>{rPage} / {rTotalPages}</span>
+          <button onClick={() => setRPage(p => Math.min(rTotalPages, p + 1))} disabled={rPage >= rTotalPages}
+            style={{ padding: '8px 18px', borderRadius: 10, border: 'none', background: rPage >= rTotalPages ? (isDark ? '#2a2a2a' : '#f0f0f0') : '#1a6b3c', color: rPage >= rTotalPages ? muted : '#fff', fontWeight: 700, fontSize: 14, cursor: rPage >= rTotalPages ? 'default' : 'pointer' }}>→</button>
+        </div>
+      )}
     </div>
   )
 }

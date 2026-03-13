@@ -12,6 +12,7 @@ interface AppUser {
   role: string
   status: 'pending' | 'active' | 'blocked'
   created_at: string
+  notify?: boolean
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -51,6 +52,13 @@ export default function UsersPage() {
       .catch(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [token])
+
+  const handleNotify = async (userId: number) => {
+    try {
+      const res = await api.patch(`/users/${userId}/notify`)
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, notify: res.data.notify } : u))
+    } catch { /* silent */ }
+  }
 
   const handleUpdate = async (userId: number, patch: { role?: string; status?: string }) => {
     setSaving(true)
@@ -207,13 +215,23 @@ export default function UsersPage() {
         {!isPending && !isDeveloper && canManage && (
           <>
             {!isEditing ? (
-              <button onClick={() => setEditingId(u.id)} style={{
-                width: '100%', marginTop: 10, background: 'transparent',
-                border: `1px solid ${border}`, borderRadius: 10, padding: '7px 0',
-                fontSize: 13, color: '#2481cc', fontWeight: 600, cursor: 'pointer',
-              }}>
-                Управление
-              </button>
+              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                <button onClick={() => setEditingId(u.id)} style={{
+                  flex: 1, background: 'transparent',
+                  border: `1px solid ${border}`, borderRadius: 10, padding: '7px 0',
+                  fontSize: 13, color: '#2481cc', fontWeight: 600, cursor: 'pointer',
+                }}>
+                  Управление
+                </button>
+                <button onClick={() => handleNotify(u.id)} title={u.notify ? 'Выключить уведомления' : 'Включить уведомления'} style={{
+                  background: u.notify ? '#f59e0b20' : 'transparent',
+                  border: `1px solid ${u.notify ? '#f59e0b' : border}`,
+                  borderRadius: 10, padding: '7px 12px',
+                  fontSize: 16, cursor: 'pointer',
+                }}>
+                  {u.notify ? '🔔' : '🔕'}
+                </button>
+              </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div>

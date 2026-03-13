@@ -65,6 +65,8 @@ export default function SalesPage() {
   const [history, setHistory] = useState<SaleHistory[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
   const [expandedId, setExpandedId] = useState<number | null>(null)
+  const [prodPage, setProdPage] = useState(1)
+  const [histPage, setHistPage] = useState(1)
 
   useEffect(() => {
     let cancelled = false
@@ -72,7 +74,7 @@ export default function SalesPage() {
     const params: Record<string, string> = {}
     if (search) params.search = search
     api.get('/products', { headers: { Authorization: `Bearer ${token}` }, params })
-      .then(r => { if (!cancelled) setProducts(r.data.items.filter((p: Product) => p.current_stock > 0)) })
+      .then(r => { if (!cancelled) { setProducts(r.data.items.filter((p: Product) => p.current_stock > 0)); setProdPage(1) } })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
@@ -117,6 +119,12 @@ export default function SalesPage() {
     setCart(prev => prev.map(i => i.product_id === product_id ? { ...i, selling_price: price } : i))
 
   const cartTotal = cart.reduce((s, i) => s + i.selling_price * i.quantity, 0)
+  const SP = 6
+  const prodTotalPages = Math.ceil(products.length / SP)
+  const pagedProducts = products.slice((prodPage - 1) * SP, prodPage * SP)
+  const histTotalPages = Math.ceil(history.length / SP)
+  const pagedHistory = history.slice((histPage - 1) * SP, histPage * SP)
+
   const cartCount = cart.reduce((s, i) => s + i.quantity, 0)
   const fmt = (n: number) => Math.round(n).toLocaleString('ru-RU')
 
@@ -183,7 +191,7 @@ export default function SalesPage() {
           <div style={{ flex: 1, padding: '10px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
             {loading ? <div style={{ textAlign: 'center', padding: 40, color: muted }}>Загрузка...</div>
               : products.length === 0 ? <div style={{ textAlign: 'center', padding: 40 }}><div style={{ fontSize: 36, marginBottom: 8 }}>📭</div><div style={{ color: muted }}>Нет товаров в наличии</div></div>
-              : products.map(p => {
+              : pagedProducts.map(p => {
                 const inCart = cart.find(i => i.product_id === p.id)
                 const subtitle = unitSubtitle(p.unit, p.unit_value, p.brand)
                 const stockLabel = unitDisplay(p.unit, p.unit_value, p.current_stock)
@@ -221,6 +229,16 @@ export default function SalesPage() {
               })}
           </div>
 
+          {prodTotalPages > 1 && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, padding: '8px 16px' }}>
+              <button onClick={() => setProdPage(p => Math.max(1, p - 1))} disabled={prodPage <= 1}
+                style={{ padding: '8px 18px', borderRadius: 10, border: 'none', background: prodPage <= 1 ? '#2a2a2a' : '#1a4b8c', color: prodPage <= 1 ? '#555' : '#fff', fontWeight: 700, fontSize: 14, cursor: prodPage <= 1 ? 'default' : 'pointer' }}>←</button>
+              <span style={{ fontSize: 13, color: '#888', fontWeight: 600 }}>{prodPage} / {prodTotalPages}</span>
+              <button onClick={() => setProdPage(p => Math.min(prodTotalPages, p + 1))} disabled={prodPage >= prodTotalPages}
+                style={{ padding: '8px 18px', borderRadius: 10, border: 'none', background: prodPage >= prodTotalPages ? '#2a2a2a' : '#1a4b8c', color: prodPage >= prodTotalPages ? '#555' : '#fff', fontWeight: 700, fontSize: 14, cursor: prodPage >= prodTotalPages ? 'default' : 'pointer' }}>→</button>
+            </div>
+          )}
+
           {cart.length > 0 && (
             <div style={{ position: 'fixed', bottom: 24, left: 16, right: 16, zIndex: 50 }}>
               <button onClick={() => setView('cart')} style={{ width: '100%', background: 'linear-gradient(135deg, #1a4b8c, #2d6fd4)', border: 'none', borderRadius: 18, padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: '#fff', cursor: 'pointer', boxShadow: '0 6px 24px rgba(26,75,140,0.5)' }}>
@@ -246,7 +264,7 @@ export default function SalesPage() {
               <div style={{ fontSize: 40, marginBottom: 12 }}>📭</div>
               <div style={{ color: muted }}>Продаж нет</div>
             </div>
-          ) : history.map(s => {
+          ) : pagedHistory.map(s => {
             const st = STATUS_LABEL[s.status] ?? { label: s.status, color: muted }
             const isExpanded = expandedId === s.id
             return (
@@ -296,6 +314,15 @@ export default function SalesPage() {
               </div>
             )
           })}
+          {histTotalPages > 1 && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, paddingTop: 8, paddingBottom: 16 }}>
+              <button onClick={() => setHistPage(p => Math.max(1, p - 1))} disabled={histPage <= 1}
+                style={{ padding: '8px 18px', borderRadius: 10, border: 'none', background: histPage <= 1 ? (isDark ? '#2a2a2a' : '#f0f0f0') : '#1a4b8c', color: histPage <= 1 ? '#888' : '#fff', fontWeight: 700, fontSize: 14, cursor: histPage <= 1 ? 'default' : 'pointer' }}>←</button>
+              <span style={{ fontSize: 13, color: muted, fontWeight: 600 }}>{histPage} / {histTotalPages}</span>
+              <button onClick={() => setHistPage(p => Math.min(histTotalPages, p + 1))} disabled={histPage >= histTotalPages}
+                style={{ padding: '8px 18px', borderRadius: 10, border: 'none', background: histPage >= histTotalPages ? (isDark ? '#2a2a2a' : '#f0f0f0') : '#1a4b8c', color: histPage >= histTotalPages ? '#888' : '#fff', fontWeight: 700, fontSize: 14, cursor: histPage >= histTotalPages ? 'default' : 'pointer' }}>→</button>
+            </div>
+          )}
         </div>
       )}
     </div>
