@@ -58,7 +58,7 @@ function formatDetails(entry: AuditEntry): string {
 }
 
 export default function AuditPage() {
-  const { token } = useAuth()
+  const { token, user } = useAuth()
   const navigate = useNavigate()
   const tg = window.Telegram?.WebApp
   const isDark = tg?.colorScheme === 'dark'
@@ -68,6 +68,8 @@ export default function AuditPage() {
   const [filterAction, setFilterAction] = useState('')
   const [hideReverted, setHideReverted] = useState(false)
   const [revertingId, setRevertingId] = useState<number | null>(null)
+  const [deletingId, setDeletingId] = useState<number | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null)
   const [confirmId, setConfirmId] = useState<number | null>(null)
   const [revertError, setRevertError] = useState('')
   const [refreshTick, setRefreshTick] = useState(0)
@@ -95,6 +97,19 @@ export default function AuditPage() {
     }
     setRevertingId(null)
     setConfirmId(null)
+  }
+
+  const handleHardDelete = async (id: number) => {
+    setDeletingId(id)
+    try {
+      await axios.delete(`/audit/${id}`, { headers: { Authorization: `Bearer ${token}` } })
+      setEntries(prev => prev.filter(e => e.id !== id))
+      setConfirmDeleteId(null)
+    } catch {
+      // silent
+    } finally {
+      setDeletingId(null)
+    }
   }
 
   const displayed = hideReverted ? entries.filter(e => !e.is_reverted) : entries
@@ -226,39 +241,73 @@ export default function AuditPage() {
                 )}
               </div>
 
-              {/* Кнопка отмены / подтверждения */}
-              {!entry.is_reverted && (
-                <div style={{ flexShrink: 0 }}>
-                  {confirmId === entry.id ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {/* Кнопки отмены / удаления */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
+                {!entry.is_reverted && (
+                  <div>
+                    {confirmId === entry.id ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <button
+                          onClick={() => handleRevert(entry.id)}
+                          disabled={revertingId === entry.id}
+                          style={{
+                            background: '#ff3b30', border: 'none', borderRadius: 10,
+                            padding: '6px 10px', color: '#fff',
+                            fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                            minWidth: 64,
+                          }}>
+                          {revertingId === entry.id ? '...' : '✅ Да'}
+                        </button>
+                        <button onClick={() => setConfirmId(null)} style={{
+                          background: 'none', border: 'none', fontSize: 11,
+                          color: muted, cursor: 'pointer', padding: '4px 0',
+                        }}>Нет</button>
+                      </div>
+                    ) : (
                       <button
-                        onClick={() => handleRevert(entry.id)}
-                        disabled={revertingId === entry.id}
+                        onClick={() => { setConfirmId(entry.id); setRevertError(''); setConfirmDeleteId(null) }}
                         style={{
-                          background: '#ff3b30', border: 'none', borderRadius: 10,
-                          padding: '6px 10px', color: '#fff',
-                          fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                          minWidth: 64,
-                        }}>
-                        {revertingId === entry.id ? '...' : '✅ Да'}
-                      </button>
-                      <button onClick={() => setConfirmId(null)} style={{
-                        background: 'none', border: 'none', fontSize: 11,
-                        color: muted, cursor: 'pointer', padding: '4px 0',
-                      }}>Нет</button>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => { setConfirmId(entry.id); setRevertError('') }}
-                      style={{
-                        background: isDark ? '#2a2a2a' : '#f8f8f8',
-                        border: `1px solid ${border}`,
-                        borderRadius: 10, padding: '6px 10px',
-                        fontSize: 12, fontWeight: 600, color: muted, cursor: 'pointer',
-                      }}>↩️ Отменить</button>
-                  )}
-                </div>
-              )}
+                          background: isDark ? '#2a2a2a' : '#f8f8f8',
+                          border: `1px solid ${border}`,
+                          borderRadius: 10, padding: '6px 10px',
+                          fontSize: 12, fontWeight: 600, color: muted, cursor: 'pointer',
+                        }}>↩️ Отменить</button>
+                    )}
+                  </div>
+                )}
+                {user?.role === 'developer' && (
+                  <div>
+                    {confirmDeleteId === entry.id ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <button
+                          onClick={() => handleHardDelete(entry.id)}
+                          disabled={deletingId === entry.id}
+                          style={{
+                            background: '#7a3b8c', border: 'none', borderRadius: 10,
+                            padding: '6px 10px', color: '#fff',
+                            fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                            minWidth: 64,
+                          }}>
+                          {deletingId === entry.id ? '...' : '🗑 Да'}
+                        </button>
+                        <button onClick={() => setConfirmDeleteId(null)} style={{
+                          background: 'none', border: 'none', fontSize: 11,
+                          color: muted, cursor: 'pointer', padding: '4px 0',
+                        }}>Нет</button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => { setConfirmDeleteId(entry.id); setConfirmId(null); setRevertError('') }}
+                        style={{
+                          background: isDark ? '#2a1a2e' : '#f5f0f8',
+                          border: '1px solid #7a3b8c40',
+                          borderRadius: 10, padding: '6px 10px',
+                          fontSize: 12, fontWeight: 600, color: '#9b4fc8', cursor: 'pointer',
+                        }}>🗑 Удалить</button>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         ))}

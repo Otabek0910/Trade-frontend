@@ -131,6 +131,7 @@ export default function UsersPage() {
     const isPending = u.status === 'pending'
     const isBlocked = u.status === 'blocked'
     const isApproving = approvingId === u.id
+    const isSelf = u.telegram_id === currentUser?.telegram_id
 
     return (
       <div key={u.id} style={{
@@ -208,6 +209,20 @@ export default function UsersPage() {
               </button>
             </div>
             {error[u.id] && <div style={{ fontSize: 12, color: '#ff3b30' }}>{error[u.id]}</div>}
+          </div>
+        )}
+
+        {/* Колокольчик для самого себя (разработчик видит только на своей строке) */}
+        {isDeveloper && isSelf && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
+            <button onClick={() => handleNotify(u.id)} title={u.notify ? 'Выключить уведомления' : 'Включить уведомления'} style={{
+              background: u.notify ? '#f59e0b20' : 'transparent',
+              border: `1px solid ${u.notify ? '#f59e0b' : border}`,
+              borderRadius: 10, padding: '7px 12px',
+              fontSize: 16, cursor: 'pointer',
+            }}>
+              {u.notify ? '🔔' : '🔕'}
+            </button>
           </div>
         )}
 
