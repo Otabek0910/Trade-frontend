@@ -67,6 +67,7 @@ export default function SalesPage() {
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [prodPage, setProdPage] = useState(1)
   const [histPage, setHistPage] = useState(1)
+  const [hideCancelled, setHideCancelled] = useState(true)
 
   useEffect(() => {
     let cancelled = false
@@ -122,8 +123,9 @@ export default function SalesPage() {
   const SP = 6
   const prodTotalPages = Math.ceil(products.length / SP)
   const pagedProducts = products.slice((prodPage - 1) * SP, prodPage * SP)
-  const histTotalPages = Math.ceil(history.length / SP)
-  const pagedHistory = history.slice((histPage - 1) * SP, histPage * SP)
+  const filteredHistory = hideCancelled ? history.filter(s => s.status !== 'cancelled') : history
+  const histTotalPages = Math.ceil(filteredHistory.length / SP)
+  const pagedHistory = filteredHistory.slice((histPage - 1) * SP, histPage * SP)
 
   const cartCount = cart.reduce((s, i) => s + i.quantity, 0)
   const fmt = (n: number) => Math.round(n).toLocaleString('ru-RU')
@@ -257,6 +259,17 @@ export default function SalesPage() {
 
       {tab === 'history' && (
         <div style={{ flex: 1, padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {/* Фильтр отменённых */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <button onClick={() => { setHideCancelled(h => !h); setHistPage(1) }} style={{
+              background: hideCancelled ? (isDark ? '#2a2a2a' : '#f0f0f0') : '#ff3b3015',
+              border: `1px solid ${hideCancelled ? border : '#ff3b3040'}`,
+              borderRadius: 10, padding: '5px 12px', fontSize: 12, fontWeight: 600,
+              color: hideCancelled ? muted : '#ff3b30', cursor: 'pointer',
+            }}>
+              {hideCancelled ? '🚫 Скрыты отменённые' : '👁 Показать все'}
+            </button>
+          </div>
           {historyLoading ? (
             <div style={{ textAlign: 'center', padding: 48, color: muted }}>Загрузка...</div>
           ) : history.length === 0 ? (
