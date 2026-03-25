@@ -41,6 +41,23 @@ const fmt = (n: number) => {
 }
 // Полная цифра для тапа: 1 924 500
 const fmtFull = (n: number) => Math.round(n).toLocaleString('ru-RU') + ' сум' 
+const fmtUsd  = (n: number, rate: number) => {
+  const d = n / rate
+  const sign = d < 0 ? '−' : ''
+  const abs = Math.abs(d)
+  if (abs >= 1000) return `${sign}$${(abs/1000).toFixed(1)}K`
+  return `${sign}$${abs.toFixed(0)}`
+}
+function readCbuForDashboard(): number | null {
+  try {
+    const raw = localStorage.getItem('cbu_rate_cache')
+    if (!raw) return null
+    const c = JSON.parse(raw)
+    const today = new Date().toISOString().slice(0, 10)
+    if (c.date !== today) return null
+    return typeof c.rate === 'number' ? c.rate : null
+  } catch { return null }
+}
 
 // ── SVG Donut ────────────────────────────────────────────────────────────────
 function DonutChart({ segments, size = 80 }: { segments: { value: number; color: string }[]; size?: number }) {
@@ -221,6 +238,8 @@ export default function DashboardPage() {
   const [confirmReset, setConfirmReset] = useState(false)
   const [backingUp, setBackingUp] = useState(false)
   const [restoring, setRestoring] = useState(false)
+  const [showUsd, setShowUsd] = useState(false)
+  const [dashCbuRate] = useState<number | null>(readCbuForDashboard)
 
   const isMobileTg = !!(tg && (tg as unknown as { platform?: string }).platform &&
     !['macos', 'tdesktop', 'web'].includes((tg as unknown as { platform?: string }).platform ?? ''))
@@ -322,6 +341,9 @@ export default function DashboardPage() {
   const border = isDark ? '#333' : '#e8eaed'
   const stats = period !== 'history' ? data?.[period as 'today' | 'week' | 'month'] : null
   const maxExpense = data?.expenses_by_category[0]?.total ?? 1
+  // Универсальное форматирование: сум или $ в зависимости от переключателя
+  const fmtM = (n: number) => showUsd && dashCbuRate ? fmtUsd(n, dashCbuRate) : fmt(n)
+  const unitM = showUsd && dashCbuRate ? '$' : 'сум'
   const cashTotal = Object.values(data?.cash_by_type ?? {}).reduce((s, x) => s + x.total, 0)
 
   return (
@@ -333,6 +355,14 @@ export default function DashboardPage() {
           <div style={{ flex: 1, fontSize: 18, fontWeight: 800, color: text }}>📊 Дашборд</div>
           {(data?.low_stock_count ?? 0) > 0 && (
             <div style={{ background: '#ff3b30', borderRadius: 10, padding: '3px 8px', fontSize: 12, color: '#fff', fontWeight: 700 }}>⚠️ {data!.low_stock_count}</div>
+          )}
+          {dashCbuRate && (
+            <button onClick={() => setShowUsd(s => !s)} style={{
+              background: showUsd ? '#e08030' : (isDark ? '#333' : '#f0f2f5'),
+              border: `1.5px solid ${showUsd ? '#e08030' : (isDark ? '#444' : '#e8eaed')}`,
+              borderRadius: 10, padding: '4px 10px', fontSize: 12, fontWeight: 700,
+              color: showUsd ? '#fff' : (isDark ? '#888' : '#999'), cursor: 'pointer',
+            }}>{showUsd ? '💵 $' : 'сум'}</button>
           )}
         </div>
         <div style={{ display: 'flex', gap: 4, background: isDark ? '#333' : '#f0f2f5', borderRadius: 10, padding: 3 }}>
@@ -362,9 +392,9 @@ export default function DashboardPage() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             {[
               { label: 'Продажи', value: String(stats.sales_count), unit: 'шт', color: '#2481cc', icon: '🧾', rawValue: undefined },
-              { label: 'Выручка', value: fmt(stats.revenue), unit: 'сум', color: '#1a6b3c', icon: '💰', rawValue: stats.revenue },
-              { label: 'Маржа', value: fmt(stats.margin), unit: `сум · ${stats.margin_percent}%`, color: '#34c759', icon: '📈', rawValue: stats.margin },
-              { label: 'Новый долг', value: fmt(stats.debt_new), unit: 'сум', color: stats.debt_new > 0 ? '#ff3b30' : '#34c759', icon: '⏳', rawValue: stats.debt_new },
+              { label: 'Выручка', value: fmtM(stats.revenue), unit: unitM, color: '#1a6b3c', icon: '💰', rawValue: stats.revenue },
+              { label: 'Маржа', value: fmtM(stats.margin), unit: `${unitM} · ${stats.margin_percent}%`, color: '#34c759', icon: '📈', rawValue: stats.margin },
+              { label: 'Новый долг', value: fmtM(stats.debt_new), unit: unitM, color: stats.debt_new > 0 ? '#ff3b30' : '#34c759', icon: '⏳', rawValue: stats.debt_new },
             ].map(s => (
               <div key={s.label} style={{ background: card, borderRadius: 16, padding: '14px 16px', border: `1px solid ${border}` }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -388,9 +418,9 @@ export default function DashboardPage() {
             borderRadius: 16, padding: '14px 16px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8,
           }}>
             {[
-              { label: '💸 Расходы', value: `−${fmt(stats.expenses)}`, color: '#e05555' },
-              { label: '↩️ Возвраты', value: `−${fmt(stats.returns)}`, color: '#e08030' },
-              { label: '🏦 Чистая', value: `${stats.net_profit >= 0 ? '+' : ''}${fmt(stats.net_profit)}`, color: stats.net_profit >= 0 ? '#34c759' : '#ff3b30' },
+              { label: '💸 Расходы', value: `−${fmtM(stats.expenses)}`, color: '#e05555' },
+              { label: '↩️ Возвраты', value: `−${fmtM(stats.returns)}`, color: '#e08030' },
+              { label: '🏦 Чистая', value: `${stats.net_profit >= 0 ? '+' : ''}${fmtM(stats.net_profit)}`, color: stats.net_profit >= 0 ? '#34c759' : '#ff3b30' },
             ].map((s, i) => (
               <div key={i} style={{ textAlign: 'center', borderLeft: i > 0 ? `1px solid ${border}` : 'none' }}>
                 <div style={{ fontSize: 10, color: muted, marginBottom: 4 }}>{s.label}</div>
@@ -410,14 +440,14 @@ export default function DashboardPage() {
                     <div key={type} style={{ marginBottom: 7 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
                         <span style={{ color: text }}>{PAYMENT_LABELS[type] || type}</span>
-                        <span style={{ fontWeight: 700, color: PAYMENT_COLORS[type] || '#888' }}>{fmt(d.total)} сум</span>
+                        <span style={{ fontWeight: 700, color: PAYMENT_COLORS[type] || '#888' }}>{fmtM(d.total)} {unitM}</span>
                       </div>
                       <MiniBar value={d.total} max={cashTotal} color={PAYMENT_COLORS[type] || '#888'} />
                     </div>
                   ))}
                   <div style={{ borderTop: `1px solid ${border}`, paddingTop: 6, display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
                     <span style={{ color: muted }}>Итого получено</span>
-                    <span style={{ fontWeight: 800, color: text }}>{fmt(cashTotal)} сум</span>
+                    <span style={{ fontWeight: 800, color: text }}>{fmtM(cashTotal)} {unitM}</span>
                   </div>
                 </div>
               </div>
@@ -427,18 +457,18 @@ export default function DashboardPage() {
             {data.total_customer_debt > 0 && (
               <div style={{ marginTop: 8, background: '#ff3b3010', border: '1px solid #ff3b3025', borderRadius: 10, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: 12, color: muted }}>⏳ В долгах у клиентов</span>
-                <span style={{ fontSize: 14, fontWeight: 800, color: '#ff3b30' }}>{fmt(data.total_customer_debt)} сум</span>
+                <span style={{ fontSize: 14, fontWeight: 800, color: '#ff3b30' }}>{fmtM(data.total_customer_debt)} {unitM}</span>
               </div>
             )}
             {(data.total_supplier_debt ?? 0) > 0 && (
               <div style={{ marginTop: 8, background: '#ff950015', border: '1px solid #ff950035', borderRadius: 10, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: 12, color: muted }}>🚚 Долг поставщикам</span>
-                <span style={{ fontSize: 14, fontWeight: 800, color: '#ff9500' }}>{fmt(data.total_supplier_debt)} сум</span>
+                <span style={{ fontSize: 14, fontWeight: 800, color: '#ff9500' }}>{fmtM(data.total_supplier_debt)} {unitM}</span>
               </div>
             )}
             <div style={{ marginTop: 8, background: isDark ? '#1a2a1a' : '#f0faf4', border: '1px solid #34c75930', borderRadius: 10, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: 12, color: muted }}>💼 Итого в кассе (всё время)</span>
-              <span style={{ fontSize: 14, fontWeight: 800, color: '#34c759' }}>{fmt(data.cash_alltime)} сум</span>
+              <span style={{ fontSize: 14, fontWeight: 800, color: '#34c759' }}>{fmtM(data.cash_alltime)} {unitM}</span>
             </div>
           </div>
 
@@ -446,7 +476,7 @@ export default function DashboardPage() {
           {data.stock_value > 0 && (
             <div style={{ background: isDark ? '#1a1a2a' : '#f0f4ff', border: '1px solid #2481cc30', borderRadius: 16, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: 13, color: muted }}>📦 Заморожено в товарах</span>
-              <span style={{ fontSize: 15, fontWeight: 800, color: '#2481cc' }}>{fmt(data.stock_value)} сум</span>
+              <span style={{ fontSize: 15, fontWeight: 800, color: '#2481cc' }}>{fmtM(data.stock_value)} {unitM}</span>
             </div>
           )}
 
@@ -458,13 +488,13 @@ export default function DashboardPage() {
                 <div key={i} style={{ paddingTop: i > 0 ? 10 : 0, borderTop: i > 0 ? `1px solid ${border}` : 'none', marginTop: i > 0 ? 10 : 0 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
                     <span style={{ fontSize: 13, fontWeight: 700, color: text }}>{s.name}</span>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: '#1a6b3c' }}>{fmt(s.revenue)} сум</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: '#1a6b3c' }}>{fmtM(s.revenue)} {unitM}</span>
                   </div>
                   <MiniBar value={s.revenue} max={data.seller_stats[0].revenue} color="#1a6b3c" />
                   <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
                     <span style={{ fontSize: 11, color: muted }}>{s.sales_count} прод.</span>
-                    <span style={{ fontSize: 11, color: '#2481cc' }}>получено {fmt(s.paid)}</span>
-                    {s.debt > 0 && <span style={{ fontSize: 11, color: '#ff3b30' }}>долг {fmt(s.debt)}</span>}
+                    <span style={{ fontSize: 11, color: '#2481cc' }}>получено {fmtM(s.paid)}</span>
+                    {s.debt > 0 && <span style={{ fontSize: 11, color: '#ff3b30' }}>долг {fmtM(s.debt)}</span>}
                   </div>
                 </div>
               ))}
@@ -530,7 +560,7 @@ export default function DashboardPage() {
                     style={{ fontSize: 13, fontWeight: 700, color: '#1a6b3c', flexShrink: 0, cursor: 'pointer' }}
                     title={fmtFull(p.total_revenue)}
                     onClick={() => alert(fmtFull(p.total_revenue))}
-                  >{fmt(p.total_revenue)} сум</div>
+                  >{fmtM(p.total_revenue)} {unitM}</div>
                 </div>
               ))}
             </div>
@@ -544,8 +574,8 @@ export default function DashboardPage() {
                 <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: i > 0 ? 10 : 0, borderTop: i > 0 ? `1px solid ${border}` : 'none', marginTop: i > 0 ? 10 : 0 }}>
                   <div><div style={{ fontSize: 13, fontWeight: 600, color: text }}>{c.name}</div><div style={{ fontSize: 11, color: muted }}>{c.phone}</div></div>
                   <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: 14, fontWeight: 800, color: '#ff3b30' }}>{fmt(c.total_debt)} сум</div>
-                    <div style={{ fontSize: 10, color: muted }}>покупки: {fmt(c.total_purchases)}</div>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: '#ff3b30' }}>{fmtM(c.total_debt)} {unitM}</div>
+                    <div style={{ fontSize: 10, color: muted }}>покупки: {fmtM(c.total_purchases)}</div>
                   </div>
                 </div>
               ))}
@@ -567,7 +597,7 @@ export default function DashboardPage() {
                     <div style={{ fontSize: 11, color: muted }}>{new Date(r.created_at).toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })}</div>
                   </div>
                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#e08030' }}>−{fmt(r.return_amount)}</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#e08030' }}>−{fmtM(r.return_amount)}</div>
                     <div style={{ fontSize: 11, color: muted }}>{unitDisplay(r.unit, r.unit_value, r.quantity)}</div>
                   </div>
                 </div>
