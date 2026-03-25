@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import axios, { AxiosError } from 'axios'
 import type { CartItem, Customer } from '../SalesPage'
 import { unitSubtitle } from './unitHelpers'
@@ -23,6 +23,29 @@ interface Props {
   onCustomerSelected: (c: Customer) => void
 }
 
+// ── Читаем курс ЦБУ из localStorage (кэш MainMenu) ───────────────────────────
+function readCbuRateCache(): number | null {
+  try {
+    const raw = localStorage.getItem('cbu_rate_cache')
+    if (!raw) return null
+    const cached = JSON.parse(raw)
+    const today = new Date().toISOString().slice(0, 10)
+    if (cached.date !== today) return null
+    return typeof cached.rate === 'number' ? cached.rate : null
+  } catch {
+    return null
+  }
+}
+
+// Lazy initializer — читает кэш ДО первого рендера
+function initRateState(): { cbuRate: number | null; marketRate: string } {
+  const cached = readCbuRateCache()
+  return {
+    cbuRate: cached,
+    marketRate: cached ? String(cached) : '',
+  }
+}
+
 export default function CartView({
   cart, customer, token, role, isDark, onBack, onRemove,
   onUpdateQty, onUpdatePrice, onSelectCustomer, onSuccess,
@@ -35,15 +58,35 @@ export default function CartView({
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
-  // Ввод количества вручную
   const [editingQtyId, setEditingQtyId] = useState<number | null>(null)
   const [editingQtyVal, setEditingQtyVal] = useState('')
+
+  // ── Курсы — инициализируем из кэша сразу, без useEffect ──────────────────
+  const [rateState, setRateState] = useState(initRateState)
+  const cbuRate = rateState.cbuRate
+  const marketRate = rateState.marketRate
+  const setMarketRate = (val: string) => setRateState(s => ({ ...s, marketRate: val }))
+
+  const hasUsdItems = cart.some(i => i.purchase_currency === 'usd')
+
+  useEffect(() => {
+    // Если кэш уже дал нам курс — не запрашиваем
+    if (rateState.cbuRate !== null) return
+
+    axios.get('/rates/today', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => {
+        setRateState({
+          cbuRate: r.data.cbu_rate,
+          marketRate: r.data.cbu_rate ? String(r.data.cbu_rate) : '',
+        })
+      })
+      .catch(() => {})
+  }, [token]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const subtotal = cart.reduce((s, i) => s + i.selling_price * i.quantity, 0)
   const discountVal = discount ? subtotal * (parseFloat(discount) / 100) : 0
   const total = subtotal - discountVal
   const discountPct = parseFloat(discount) || 0
-  // Для продавца и владельца: предупреждение если скидка опускает цену ниже закупки
   const isRestrictedRole = role === 'seller' || role === 'owner_business'
   const sellerDiscountWarning = isRestrictedRole && discountPct > 0
     ? cart.some(i => i.purchase_price != null && i.selling_price * (1 - discountPct / 100) < i.purchase_price)
@@ -67,12 +110,19 @@ export default function CartView({
   const totalPurchaseCost = cart.reduce((s, i) => s + (i.purchase_price ?? 0) * i.quantity, 0)
   const isBelowCost = isRestrictedRole && total < totalPurchaseCost
 
+  const effectiveRate = parseFloat(marketRate) || cbuRate || null
+
   const handleConfirm = async () => {
     if (isBelowCost) return
     if (cart.length === 0) return
+    if (hasUsdItems && !effectiveRate) {
+      setError('Укажите курс доллара для корректного расчёта маржи')
+      return
+    }
     setLoading(true)
     setError('')
     try {
+      const marketRateNum = parseFloat(marketRate) || null
       const res = await axios.post('/sales', {
         customer_id: customer?.id ?? null,
         items: cart.map(i => ({
@@ -83,6 +133,9 @@ export default function CartView({
         payment_type: paymentType,
         discount_percent: parseFloat(discount) || 0,
         paid_amount: paid,
+        cbu_rate: cbuRate ?? null,
+        market_rate: marketRateNum !== cbuRate ? marketRateNum : null,
+        effective_rate: effectiveRate,
       }, { headers: { Authorization: `Bearer ${token}` } })
 
       setSuccess(res.data.message)
@@ -126,17 +179,18 @@ export default function CartView({
           {cart.map((item, i) => {
             const hasVolume = item.unit !== 'шт' && item.unit_value && item.unit_value !== 1
             return (
-              <div key={item.product_id} style={{
-                padding: '10px 14px',
-                borderTop: i > 0 ? `1px solid ${border}` : 'none',
-              }}>
+              <div key={item.product_id} style={{ padding: '10px 14px', borderTop: i > 0 ? `1px solid ${border}` : 'none' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: text }}>{item.name}</div>
-                    {/* Марка и единица */}
                     {unitSubtitle(item.unit, item.unit_value, item.brand) && (
                       <div style={{ fontSize: 11, color: '#2481cc', fontWeight: 600, marginTop: 1 }}>
                         {unitSubtitle(item.unit, item.unit_value, item.brand)}
+                      </div>
+                    )}
+                    {item.purchase_currency === 'usd' && (
+                      <div style={{ fontSize: 10, color: '#e08030', fontWeight: 700, marginTop: 2 }}>
+                        💵 закуп в $
                       </div>
                     )}
                   </div>
@@ -144,7 +198,6 @@ export default function CartView({
                     style={{ background: 'none', border: 'none', fontSize: 16, color: '#ff3b30', cursor: 'pointer', padding: '0 0 0 8px' }}>×</button>
                 </div>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  {/* Qty с возможностью ввода вручную */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <button onClick={() => onUpdateQty(item.product_id, item.quantity - 1)}
                       style={{ width: 28, height: 28, borderRadius: 7, background: isDark ? '#333' : '#f0f2f5', border: 'none', color: text, fontSize: 16, cursor: 'pointer' }}>−</button>
@@ -166,7 +219,6 @@ export default function CartView({
                         title="Нажмите чтобы ввести вручную"
                       >
                         <div style={{ fontSize: 14, fontWeight: 700, color: text }}>{item.quantity}</div>
-                        {/* Итоговый объём */}
                         {hasVolume && (
                           <div style={{ fontSize: 10, color: '#2481cc', fontWeight: 600, whiteSpace: 'nowrap' }}>
                             {+(item.quantity * item.unit_value!).toFixed(2)} {item.unit}
@@ -179,7 +231,6 @@ export default function CartView({
                       style={{ width: 28, height: 28, borderRadius: 7, background: isDark ? '#333' : '#f0f2f5', border: 'none', color: text, fontSize: 16, cursor: 'pointer' }}>+</button>
                   </div>
                   <div style={{ fontSize: 12, color: muted }}>×</div>
-                  {/* Price editable */}
                   <input
                     type="number"
                     value={item.selling_price}
@@ -207,6 +258,52 @@ export default function CartView({
             )
           })}
         </div>
+
+        {/* ── Курс валюты — только если есть USD товары ── */}
+        {hasUsdItems && (
+          <div style={{ background: isDark ? '#1a1a0a' : '#fffbf0', borderRadius: 16, padding: '14px', border: '1.5px solid #e0803040' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#e08030', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              💵 Курс доллара для расчёта маржи
+            </div>
+            {cbuRate && (
+              <div style={{ fontSize: 12, color: muted, marginBottom: 8 }}>
+                ЦБУ сегодня: <span style={{ color: '#34c759', fontWeight: 700 }}>{cbuRate.toLocaleString('ru-RU')} сум</span>
+                {parseFloat(marketRate) !== cbuRate && parseFloat(marketRate) > 0 && (
+                  <span style={{ color: '#e08030', fontWeight: 600, marginLeft: 6 }}>
+                    · рыночный: {parseFloat(marketRate).toLocaleString('ru-RU')} сум
+                  </span>
+                )}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <div style={{ flex: 1 }}>
+                <input
+                  type="number"
+                  placeholder={cbuRate ? String(cbuRate) : 'Введите курс'}
+                  value={marketRate}
+                  onChange={e => setMarketRate(e.target.value)}
+                  style={{ ...inputStyle, borderColor: '#e0803060' }}
+                  inputMode="decimal"
+                />
+              </div>
+              {cbuRate && parseFloat(marketRate) !== cbuRate && (
+                <button
+                  onClick={() => setMarketRate(String(cbuRate))}
+                  style={{
+                    background: isDark ? '#333' : '#f0f2f5', border: `1px solid ${border}`,
+                    borderRadius: 10, padding: '10px 12px', fontSize: 12, color: muted,
+                    cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+                  }}
+                >
+                  = ЦБУ
+                </button>
+              )}
+            </div>
+            <div style={{ fontSize: 11, color: muted, marginTop: 6 }}>
+              Маржа по долларовым товарам будет рассчитана по этому курсу.
+            </div>
+          </div>
+        )}
 
         {/* Customer */}
         <button onClick={onSelectCustomer} style={{
@@ -308,7 +405,6 @@ export default function CartView({
           </div>
         )}
 
-        {/* Confirm */}
         <button onClick={handleConfirm} disabled={loading || !!success || sellerDiscountWarning || isBelowCost} style={{
           width: '100%', background: success ? '#34c759' : loading ? '#555' : sellerDiscountWarning || isBelowCost ? '#888' : 'linear-gradient(135deg, #1a4b8c, #2d6fd4)',
           border: 'none', borderRadius: 16, padding: 16, color: '#fff',

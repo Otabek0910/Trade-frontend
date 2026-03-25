@@ -20,26 +20,69 @@ export default function AddProductModal({ token, isDark, onClose, onSuccess }: P
 
   const [form, setForm] = useState({
     sku: '', name: '', category: '',
-    brand: '',          // Марка
-    unit: 'шт',        // Единица измерения
-    unit_value: '',    // Объём упаковки (напр. 3 для канистры 3л)
+    brand: '',
+    unit: 'шт',
+    unit_value: '',
     supplier_id: '',
     purchase_price: '', selling_price: '', min_stock: '5',
+    // ── Новые поля валюты ──
+    purchase_currency: 'uzs',   // 'uzs' | 'usd'
+    purchase_rate: '',           // курс на момент закупки (если usd)
   })
+
+  // Курс ЦБУ для подсказки
+  const [cbuRate, setCbuRate] = useState<number | null>(null)
 
   useEffect(() => {
     axios.get('/suppliers', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => setSuppliers(r.data))
+
+    // Тянем актуальный курс ЦБУ для подсказки
+    axios.get('/rates/today', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => {
+        setCbuRate(r.data.cbu_rate)
+        // Подставляем курс ЦБУ как дефолтный если поле пустое
+        setForm(f => f.purchase_rate === '' ? { ...f, purchase_rate: String(r.data.cbu_rate) } : f)
+      })
+      .catch(() => {})
   }, [token])
 
   const set = (key: string, val: string) => setForm(f => ({ ...f, [key]: val }))
 
-  // Показываем поле unit_value только когда единица не "шт"
   const showUnitValue = form.unit !== 'шт'
+  const isUsd = form.purchase_currency === 'usd'
+
+  // Расчёт маржи с учётом валюты
+  const calcMargin = () => {
+    const sell = parseFloat(form.selling_price)
+    const buy = parseFloat(form.purchase_price)
+    const rate = parseFloat(form.purchase_rate)
+    if (!sell || !buy || buy <= 0) return null
+
+    if (isUsd) {
+      // Закупка в USD → переводим в сумы по указанному курсу
+      if (!rate || rate <= 0) return null
+      const buyInUzs = buy * rate
+      const marginUzs = sell - buyInUzs
+      const marginPct = Math.round(marginUzs / buyInUzs * 100)
+      const marginUsd = sell / rate - buy
+      return { uzs: marginUzs, pct: marginPct, usd: marginUsd }
+    } else {
+      const marginUzs = sell - buy
+      const marginPct = Math.round(marginUzs / buy * 100)
+      return { uzs: marginUzs, pct: marginPct, usd: null }
+    }
+  }
+
+  const margin = calcMargin()
 
   const handleSubmit = async () => {
     if (!form.sku || !form.name || !form.purchase_price || !form.selling_price) {
       setError('Заполните обязательные поля')
+      return
+    }
+    if (isUsd && (!form.purchase_rate || parseFloat(form.purchase_rate) <= 0)) {
+      setError('Укажите курс доллара на момент закупки')
       return
     }
     setLoading(true)
@@ -56,6 +99,9 @@ export default function AddProductModal({ token, isDark, onClose, onSuccess }: P
         purchase_price: parseFloat(form.purchase_price),
         selling_price: parseFloat(form.selling_price),
         min_stock: parseInt(form.min_stock) || 5,
+        // ── Новые поля ──
+        purchase_currency: form.purchase_currency,
+        purchase_rate: isUsd && form.purchase_rate ? parseFloat(form.purchase_rate) : null,
       }, { headers })
       onSuccess()
     } catch (err) {
@@ -112,7 +158,6 @@ export default function AddProductModal({ token, isDark, onClose, onSuccess }: P
               <input style={inputStyle} placeholder="Например: Масло моторное" value={form.name} onChange={e => set('name', e.target.value)} />
             </div>
 
-            {/* Марка */}
             <div>
               <label style={labelStyle}>Марка / Бренд</label>
               <input style={inputStyle} placeholder="Например: Mobil 1, Shell, Castrol" value={form.brand} onChange={e => set('brand', e.target.value)} />
@@ -123,7 +168,6 @@ export default function AddProductModal({ token, isDark, onClose, onSuccess }: P
               <input style={inputStyle} placeholder="Например: Масла" value={form.category} onChange={e => set('category', e.target.value)} />
             </div>
 
-            {/* Единица измерения + объём упаковки */}
             <div>
               <label style={labelStyle}>Единица измерения</label>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -138,7 +182,6 @@ export default function AddProductModal({ token, isDark, onClose, onSuccess }: P
               </div>
             </div>
 
-            {/* Объём упаковки — только если не шт */}
             {showUnitValue && (
               <div>
                 <label style={labelStyle}>
@@ -166,22 +209,93 @@ export default function AddProductModal({ token, isDark, onClose, onSuccess }: P
               </select>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <div>
-                <label style={labelStyle}>Цена закупки *</label>
-                <input style={inputStyle} type="number" placeholder="0" value={form.purchase_price} onChange={e => set('purchase_price', e.target.value)} />
+            {/* ── Цена закупки + валюта ── */}
+            <div>
+              <label style={labelStyle}>Валюта закупки</label>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                {(['uzs', 'usd'] as const).map(cur => (
+                  <button key={cur} onClick={() => set('purchase_currency', cur)} style={{
+                    flex: 1, padding: '9px 0', borderRadius: 10,
+                    border: `1.5px solid ${form.purchase_currency === cur ? (cur === 'usd' ? '#e08030' : '#2481cc') : border}`,
+                    background: form.purchase_currency === cur
+                      ? (cur === 'usd' ? '#e0803020' : '#2481cc20')
+                      : (isDark ? '#333' : '#f8f9fa'),
+                    color: form.purchase_currency === cur ? (cur === 'usd' ? '#e08030' : '#2481cc') : muted,
+                    fontWeight: 700, fontSize: 14, cursor: 'pointer',
+                  }}>
+                    {cur === 'uzs' ? '🇺🇿 Сумы' : '🇺🇸 Доллары'}
+                  </button>
+                ))}
               </div>
-              <div>
-                <label style={labelStyle}>Цена продажи *</label>
-                <input style={inputStyle} type="number" placeholder="0" value={form.selling_price} onChange={e => set('selling_price', e.target.value)} />
+
+              <div style={{ display: 'grid', gridTemplateColumns: isUsd ? '1fr 1fr' : '1fr 1fr', gap: 10 }}>
+                <div>
+                  <label style={labelStyle}>
+                    Цена закупки * {isUsd ? '($)' : '(сум)'}
+                  </label>
+                  <input
+                    style={inputStyle} type="number"
+                    placeholder={isUsd ? 'Напр. 10.50' : '0'}
+                    value={form.purchase_price}
+                    onChange={e => set('purchase_price', e.target.value)}
+                    inputMode="decimal"
+                  />
+                </div>
+                <div>
+                  <label style={labelStyle}>Цена продажи * (сум)</label>
+                  <input
+                    style={inputStyle} type="number" placeholder="0"
+                    value={form.selling_price}
+                    onChange={e => set('selling_price', e.target.value)}
+                    inputMode="decimal"
+                  />
+                </div>
               </div>
+
+              {/* Курс закупки — только если USD */}
+              {isUsd && (
+                <div style={{ marginTop: 10 }}>
+                  <label style={labelStyle}>
+                    Курс доллара на момент закупки *
+                    {cbuRate && (
+                      <span style={{ fontWeight: 400, color: '#34c759', marginLeft: 6 }}>
+                        ЦБУ сегодня: {cbuRate.toLocaleString('ru-RU')} сум
+                      </span>
+                    )}
+                  </label>
+                  <input
+                    style={{ ...inputStyle, borderColor: '#e0803060' }}
+                    type="number"
+                    placeholder={cbuRate ? String(cbuRate) : 'Напр. 12800'}
+                    value={form.purchase_rate}
+                    onChange={e => set('purchase_rate', e.target.value)}
+                    inputMode="decimal"
+                  />
+                  {form.purchase_price && form.purchase_rate && (
+                    <div style={{ fontSize: 12, color: '#e08030', marginTop: 4 }}>
+                      💱 {form.purchase_price}$ × {parseFloat(form.purchase_rate).toLocaleString('ru-RU')} = {' '}
+                      {(parseFloat(form.purchase_price) * parseFloat(form.purchase_rate)).toLocaleString('ru-RU')} сум
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
-            {form.purchase_price && form.selling_price && parseFloat(form.purchase_price) > 0 && (
-              <div style={{ background: '#34c75920', border: '1px solid #34c75940', borderRadius: 12, padding: '10px 14px' }}>
-                <span style={{ fontSize: 13, color: '#34c759', fontWeight: 600 }}>
-                  Маржа: {Math.round((parseFloat(form.selling_price) - parseFloat(form.purchase_price)) / parseFloat(form.purchase_price) * 100)}%
-                  {' '}(+{(parseFloat(form.selling_price) - parseFloat(form.purchase_price)).toLocaleString()} сум)
+            {/* Маржа */}
+            {margin !== null && (
+              <div style={{
+                background: margin.pct >= 0 ? '#34c75920' : '#ff3b3020',
+                border: `1px solid ${margin.pct >= 0 ? '#34c75940' : '#ff3b3040'}`,
+                borderRadius: 12, padding: '10px 14px',
+              }}>
+                <span style={{ fontSize: 13, color: margin.pct >= 0 ? '#34c759' : '#ff3b30', fontWeight: 600 }}>
+                  Маржа: {margin.pct}%
+                  {' '}({margin.uzs >= 0 ? '+' : ''}{Math.round(margin.uzs).toLocaleString()} сум)
+                  {margin.usd !== null && (
+                    <span style={{ marginLeft: 8, opacity: 0.8 }}>
+                      / {margin.usd >= 0 ? '+' : ''}{margin.usd.toFixed(2)}$
+                    </span>
+                  )}
                 </span>
               </div>
             )}

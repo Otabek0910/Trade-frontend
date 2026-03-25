@@ -94,19 +94,50 @@ const MENU_ITEMS: MenuItem[] = [
     colorDark: '#521a1a',
   },
   {
-  id: 'returns', icon: '↩️', label: 'Возвраты', sublabel: 'Оформить возврат',
-  path: '/returns', roles: ['developer', 'owner_business', 'seller'],
-  color: '#8c5a1a', colorDark: '#523410',
+    id: 'returns', icon: '↩️', label: 'Возвраты', sublabel: 'Оформить возврат',
+    path: '/returns', roles: ['developer', 'owner_business', 'seller'],
+    color: '#8c5a1a', colorDark: '#523410',
   },
-  
   {
-  id: 'audit', icon: '📋', label: 'Журнал', sublabel: 'История событий',
-  path: '/audit', roles: ['developer'],
-  color: '#4a6b8c', colorDark: '#2a3d52',
+    id: 'audit', icon: '📋', label: 'Журнал', sublabel: 'История событий',
+    path: '/audit', roles: ['developer'],
+    color: '#4a6b8c', colorDark: '#2a3d52',
   },
-
-
 ]
+
+// ── Кэш курса в localStorage (живёт 1 день) ──────────────────────────────────
+const RATE_CACHE_KEY = 'cbu_rate_cache'
+
+interface RateCache {
+  rate: number
+  date: string  // YYYY-MM-DD
+}
+
+function readCachedRate(): RateCache | null {
+  try {
+    const raw = localStorage.getItem(RATE_CACHE_KEY)
+    if (!raw) return null
+    const cached: RateCache = JSON.parse(raw)
+    const today = new Date().toISOString().slice(0, 10)
+    if (cached.date !== today) return null  // новый день — протух
+    return cached
+  } catch {
+    return null
+  }
+}
+
+function saveCachedRate(rate: number, date: string) {
+  try {
+    localStorage.setItem(RATE_CACHE_KEY, JSON.stringify({ rate, date }))
+  } catch { /* игнорируем */ }
+}
+
+// ── Lazy initializer — читаем кэш ДО первого рендера, без useEffect ──────────
+function initRate(): RateCache {
+  return readCachedRate() ?? { rate: 0, date: '' }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 export default function MainMenu() {
   const { user, token } = useAuth()
@@ -118,18 +149,40 @@ export default function MainMenu() {
     today_revenue: number; today_sales: number; total_debt: number; low_stock_count: number
   } | null>(null)
 
+  // Инициализируем из кэша сразу — без промежуточного рендера
+  const [rateInfo, setRateInfo] = useState<RateCache>(initRate)
+
   useEffect(() => {
     if (!token) return
+
+    // Quick stats
     api.get('/dashboard/quick-stats')
       .then(r => setQuickStats(r.data))
       .catch(() => {})
-  }, [token])
+
+    // Если кэш уже валидный — не запрашиваем
+    if (rateInfo.rate > 0) return
+
+    // Нет кэша — тянем с бэка
+    api.get('/rates/today')
+      .then(r => {
+        const fresh: RateCache = { rate: r.data.cbu_rate, date: r.data.date }
+        setRateInfo(fresh)
+        saveCachedRate(fresh.rate, fresh.date)
+      })
+      .catch(() => {})
+  }, [token]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const fmt = (n: number) =>
     n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}М` :
     n >= 1_000 ? `${(n / 1_000).toFixed(0)}К` : String(Math.round(n))
 
-  const availableItems = MENU_ITEMS.filter(item => user?.role && item.roles.includes(user.role as typeof item.roles[number]))
+  const fmtRate = (n: number) =>
+    n.toLocaleString('ru-RU', { maximumFractionDigits: 0 })
+
+  const availableItems = MENU_ITEMS.filter(item =>
+    user?.role && item.roles.includes(user.role as typeof item.roles[number])
+  )
 
   const handleTap = (item: MenuItem) => {
     tg?.HapticFeedback?.impactOccurred('light')
@@ -158,7 +211,37 @@ export default function MainMenu() {
               {user?.full_name}
             </div>
           </div>
-          <div style={{ fontSize: 32 }}>📦</div>
+
+          {/* ── Виджет курса ЦБУ ── */}
+          {rateInfo.rate > 0 ? (
+            <div style={{
+              background: isDark ? '#1a2a1a' : '#f0faf4',
+              border: '1px solid #34c75930',
+              borderRadius: 10,
+              padding: '5px 10px',
+              textAlign: 'right',
+            }}>
+              <div style={{ fontSize: 12, color: '#34c759', fontWeight: 700 }}>
+                💵 1$ = {fmtRate(rateInfo.rate)} сум
+              </div>
+              <div style={{ fontSize: 9, color: isDark ? '#555' : '#aaa', marginTop: 1 }}>
+                ЦБУ · {rateInfo.date
+                  ? new Date(rateInfo.date + 'T00:00:00').toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })
+                  : ''}
+              </div>
+            </div>
+          ) : (
+            <div style={{
+              background: isDark ? '#222' : '#f5f5f5',
+              border: `1px solid ${isDark ? '#333' : '#e8eaed'}`,
+              borderRadius: 10,
+              padding: '5px 10px',
+              fontSize: 11,
+              color: isDark ? '#555' : '#bbb',
+            }}>
+              💵 ...
+            </div>
+          )}
         </div>
       </div>
 

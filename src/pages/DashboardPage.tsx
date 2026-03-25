@@ -11,12 +11,12 @@ interface PeriodStats {
 }
 interface DashboardData {
   today: PeriodStats; week: PeriodStats; month: PeriodStats
-  top_products: { name: string; total_qty: number; total_revenue: number; unit: string; unit_value: number | null }[]
+  top_products: { name: string; brand: string | null; category: string | null; total_qty: number; total_revenue: number; unit: string; unit_value: number | null }[]
   top_debtors: { id: number; name: string; phone: string; total_debt: number; total_purchases: number }[]
   low_stock_count: number
-  low_stock_items: { name: string; current_stock: number; min_stock: number; unit: string; unit_value: number | null }[]
+  low_stock_items: { name: string; brand: string | null; category: string | null; current_stock: number; min_stock: number; unit: string; unit_value: number | null }[]
   expenses_by_category: { category: string; total: number }[]
-  recent_returns: { id: number; product_name: string; customer_name: string; quantity: number; return_amount: number; reason: string | null; created_at: string; unit: string; unit_value: number | null }[]
+  recent_returns: { id: number; product_name: string; product_brand: string | null; product_category: string | null; customer_name: string; quantity: number; return_amount: number; reason: string | null; created_at: string; unit: string; unit_value: number | null }[]
   seller_stats: { name: string; sales_count: number; revenue: number; paid: number; debt: number }[]
   cash_by_type: Record<string, { total: number; count: number }>
   returns_month_total: number
@@ -25,15 +25,22 @@ interface DashboardData {
   total_supplier_debt: number
   stock_value: number
 }
-type Period = 'today' | 'week' | 'month'
+type Period = 'today' | 'week' | 'month' | 'history'
 
 const PAYMENT_LABELS: Record<string, string> = { cash: '💵 Наличные', card: '💳 Карта', transfer: '📲 Перевод' }
 const PAYMENT_COLORS: Record<string, string> = { cash: '#34c759', card: '#2481cc', transfer: '#7a3b8c' }
 const EXPENSE_COLORS = ['#e05555','#e08030','#e0a030','#7a3b8c','#2481cc','#1a6b3c','#888','#bbb']
 
-const fmt = (n: number) =>
-  n >= 1_000_000 ? `${(n/1_000_000).toFixed(1)}М` :
-  n >= 1_000 ? `${(n/1_000).toFixed(0)}К` : String(Math.round(n))
+// Форматирует число: 1.2М / 345К / 123 — корректно для отрицательных
+const fmt = (n: number) => {
+  const abs = Math.abs(n)
+  const sign = n < 0 ? '−' : ''
+  if (abs >= 1_000_000) return `${sign}${(abs/1_000_000).toFixed(1)}М`
+  if (abs >= 1_000)     return `${sign}${(abs/1_000).toFixed(0)}К`
+  return `${sign}${Math.round(abs)}`
+}
+// Полная цифра для тапа: 1 924 500
+const fmtFull = (n: number) => Math.round(n).toLocaleString('ru-RU') + ' сум' 
 
 // ── SVG Donut ────────────────────────────────────────────────────────────────
 function DonutChart({ segments, size = 80 }: { segments: { value: number; color: string }[]; size?: number }) {
@@ -64,6 +71,136 @@ function MiniBar({ value, max, color }: { value: number; max: number; color: str
   )
 }
 
+
+interface HistoryProduct {
+  name: string; brand: string | null; category: string | null
+  total_qty: number; total_revenue: number; unit: string; unit_value: number | null
+}
+interface HistoryStats {
+  sales_count: number; revenue: number; margin: number; margin_percent: number
+  expenses: number; returns: number; net_profit: number
+  top_products: HistoryProduct[]
+  period: { type: string; year: number; month: number | null }
+}
+
+// ── HistoryBlock ─────────────────────────────────────────────────────────────
+const MONTHS = ['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек']
+
+function HistoryBlock({ year, month, data, loading, isDark, card, text, muted, border, onYearChange, onMonthChange, fmt, fmtFull }: {
+  year: number; month: number | null; data: HistoryStats | null; loading: boolean
+  isDark: boolean; card: string; text: string; muted: string; border: string
+  onYearChange: (y: number) => void; onMonthChange: (m: number | null) => void
+  fmt: (n: number) => string; fmtFull: (n: number) => string
+}) {
+  const currentYear = new Date().getFullYear()
+  const years = Array.from({ length: 3 }, (_, i) => currentYear - i)
+
+  return (
+    <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+
+      {/* Выбор года */}
+      <div style={{ display: 'flex', gap: 6 }}>
+        {years.map(y => (
+          <button key={y} onClick={() => onYearChange(y)} style={{
+            flex: 1, padding: '8px 0', borderRadius: 10, border: `1.5px solid ${year === y ? '#2481cc' : border}`,
+            background: year === y ? '#2481cc20' : (isDark ? '#333' : '#f8f9fa'),
+            color: year === y ? '#2481cc' : muted, fontWeight: 700, fontSize: 13, cursor: 'pointer',
+          }}>{y}</button>
+        ))}
+      </div>
+
+      {/* Выбор месяца + Всё время */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 5 }}>
+        <button onClick={() => onMonthChange(null)} style={{
+          gridColumn: '1 / -1', padding: '8px 0', borderRadius: 10,
+          border: `1.5px solid ${month === null ? '#e08030' : border}`,
+          background: month === null ? '#e0803020' : (isDark ? '#333' : '#f8f9fa'),
+          color: month === null ? '#e08030' : muted, fontWeight: 700, fontSize: 12, cursor: 'pointer',
+        }}>🗂 Весь {year} год</button>
+        {MONTHS.map((m, idx) => (
+          <button key={idx} onClick={() => onMonthChange(idx + 1)} style={{
+            padding: '7px 0', borderRadius: 8, border: `1.5px solid ${month === idx + 1 ? '#2481cc' : border}`,
+            background: month === idx + 1 ? '#2481cc20' : (isDark ? '#333' : '#f8f9fa'),
+            color: month === idx + 1 ? '#2481cc' : muted, fontWeight: 600, fontSize: 12, cursor: 'pointer',
+          }}>{m}</button>
+        ))}
+      </div>
+
+      {/* Данные */}
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: 40, color: muted }}>⏳ Загрузка...</div>
+      ) : !data ? (
+        <div style={{ textAlign: 'center', padding: 40, color: muted }}>Выберите период</div>
+      ) : (
+        <>
+          {/* Метрики */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            {[
+              { label: 'Продажи', value: String(data.sales_count), unit: 'шт', color: '#2481cc', icon: '🧾', raw: undefined },
+              { label: 'Выручка', value: fmt(data.revenue), unit: 'сум', color: '#1a6b3c', icon: '💰', raw: data.revenue },
+              { label: 'Маржа', value: fmt(data.margin), unit: `сум · ${data.margin_percent}%`, color: '#34c759', icon: '📈', raw: data.margin },
+              { label: 'Чистая', value: fmt(data.net_profit), unit: 'сум', color: data.net_profit >= 0 ? '#34c759' : '#ff3b30', icon: '🏦', raw: data.net_profit },
+            ].map(s => (
+              <div key={s.label} style={{ background: card, borderRadius: 16, padding: '14px 16px', border: `1px solid ${border}` }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <div style={{ fontSize: 12, color: muted, fontWeight: 600 }}>{s.label}</div>
+                  <div style={{ fontSize: 18 }}>{s.icon}</div>
+                </div>
+                <div
+                  style={{ fontSize: 22, fontWeight: 800, color: s.color, cursor: s.raw !== undefined ? 'pointer' : 'default' }}
+                  onClick={() => s.raw !== undefined && alert(fmtFull(s.raw))}
+                >{s.value}</div>
+                <div style={{ fontSize: 11, color: muted, marginTop: 2 }}>{s.unit}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Расходы / Возвраты */}
+          <div style={{
+            background: data.net_profit >= 0 ? (isDark ? 'rgba(52,199,89,0.12)' : 'rgba(52,199,89,0.08)') : (isDark ? 'rgba(255,59,48,0.12)' : 'rgba(255,59,48,0.08)'),
+            border: `1.5px solid ${data.net_profit >= 0 ? '#34c75940' : '#ff3b3040'}`,
+            borderRadius: 16, padding: '14px 16px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8,
+          }}>
+            {[
+              { label: '💸 Расходы', value: `−${fmt(data.expenses)}`, color: '#e05555' },
+              { label: '↩️ Возвраты', value: `−${fmt(data.returns)}`, color: '#e08030' },
+            ].map((s, i) => (
+              <div key={i} style={{ textAlign: 'center', borderLeft: i > 0 ? `1px solid ${border}` : 'none' }}>
+                <div style={{ fontSize: 10, color: muted, marginBottom: 4 }}>{s.label}</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: s.color }}>{s.value}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Топ товаров */}
+          {data.top_products?.length > 0 && (
+            <div style={{ background: card, borderRadius: 16, padding: '14px 16px', border: `1px solid ${border}` }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 }}>
+                🏆 Топ товаров
+              </div>
+              {data.top_products.map((p: HistoryProduct, i: number) => (
+                <div key={p.name} style={{ display: 'flex', alignItems: 'center', gap: 10, paddingTop: i > 0 ? 10 : 0, borderTop: i > 0 ? `1px solid ${border}` : 'none', marginTop: i > 0 ? 10 : 0 }}>
+                  <div style={{ width: 26, height: 26, borderRadius: 8, flexShrink: 0, background: ['#ffd700','#c0c0c0','#cd7f32','#2481cc20','#2481cc20'][i] ?? '#2481cc20', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 800, color: i < 3 ? '#1a1a1a' : '#2481cc' }}>{i+1}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
+                    {(p.brand || p.category) && (
+                      <div style={{ fontSize: 10, color: '#2481cc', fontWeight: 600 }}>{[p.brand, p.category].filter(Boolean).join(' · ')}</div>
+                    )}
+                    <div style={{ fontSize: 11, color: muted }}>{p.total_qty} шт</div>
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#1a6b3c', flexShrink: 0, cursor: 'pointer' }}
+                    onClick={() => alert(fmtFull(p.total_revenue))}
+                  >{fmt(p.total_revenue)} сум</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
 export default function DashboardPage() {
   const navigate = useNavigate()
   const tg = window.Telegram?.WebApp
@@ -72,6 +209,10 @@ export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [period, setPeriod] = useState<Period>('today')
+  const [histYear, setHistYear] = useState(new Date().getFullYear())
+  const [histMonth, setHistMonth] = useState<number | null>(null) // null = всё время
+  const [histData, setHistData] = useState<HistoryStats | null>(null)
+  const [histLoading, setHistLoading] = useState(false)
   const [exportDays, setExportDays] = useState(30)
   const [exporting, setExporting] = useState(false)
   const [exportSuccess, setExportSuccess] = useState('')
@@ -91,6 +232,19 @@ export default function DashboardPage() {
       .catch(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [])
+
+  // Загрузка исторических данных при переходе на вкладку История
+  useEffect(() => {
+    if (period !== 'history') return
+    let cancelled = false
+        const params = histMonth !== null
+      ? `?year=${histYear}&month=${histMonth}`
+      : `?year=${histYear}`
+    api.get(`/dashboard/history${params}`)
+      .then(r => { if (!cancelled) { setHistData(r.data); setHistLoading(false) } })
+      .catch(() => { if (!cancelled) setHistLoading(false) })
+      return () => { cancelled = true }
+  }, [period, histYear, histMonth])
 
 
   const handleReset = async () => {
@@ -166,7 +320,7 @@ export default function DashboardPage() {
   const text = isDark ? '#ffffff' : '#1a1a1a'
   const muted = isDark ? '#666' : '#999'
   const border = isDark ? '#333' : '#e8eaed'
-  const stats = data?.[period]
+  const stats = period !== 'history' ? data?.[period as 'today' | 'week' | 'month'] : null
   const maxExpense = data?.expenses_by_category[0]?.total ?? 1
   const cashTotal = Object.values(data?.cash_by_type ?? {}).reduce((s, x) => s + x.total, 0)
 
@@ -182,17 +336,24 @@ export default function DashboardPage() {
           )}
         </div>
         <div style={{ display: 'flex', gap: 4, background: isDark ? '#333' : '#f0f2f5', borderRadius: 10, padding: 3 }}>
-          {(['today', 'week', 'month'] as Period[]).map(p => (
+          {(['today', 'week', 'month', 'history'] as Period[]).map(p => (
             <button key={p} onClick={() => setPeriod(p)} style={{
-              flex: 1, border: 'none', borderRadius: 8, padding: '7px 0', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+              flex: 1, border: 'none', borderRadius: 8, padding: '7px 0', fontSize: 12, fontWeight: 600, cursor: 'pointer',
               background: period === p ? card : 'transparent', color: period === p ? text : muted,
               boxShadow: period === p ? '0 1px 3px rgba(0,0,0,0.12)' : 'none', transition: 'all 0.15s',
-            }}>{p === 'today' ? 'Сегодня' : p === 'week' ? 'Неделя' : 'Месяц'}</button>
+            }}>{p === 'today' ? 'Сегодня' : p === 'week' ? 'Неделя' : p === 'month' ? 'Месяц' : '📅 История'}</button>
           ))}
         </div>
       </div>
 
-      {loading || !data || !stats ? (
+      {period === 'history' ? (
+        <HistoryBlock
+          year={histYear} month={histMonth} data={histData} loading={histLoading}
+          isDark={isDark} card={card} text={text} muted={muted} border={border}
+          onYearChange={setHistYear} onMonthChange={setHistMonth}
+          fmt={fmt} fmtFull={fmtFull}
+        />
+      ) : loading || !data || !stats ? (
         <div style={{ textAlign: 'center', padding: 60, color: muted }}><div style={{ fontSize: 36, marginBottom: 12 }}>📊</div>{loading ? 'Загрузка...' : 'Нет данных'}</div>
       ) : (
         <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -200,17 +361,21 @@ export default function DashboardPage() {
           {/* ── Основные метрики ── */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             {[
-              { label: 'Продажи', value: String(stats.sales_count), unit: 'шт', color: '#2481cc', icon: '🧾' },
-              { label: 'Выручка', value: fmt(stats.revenue), unit: 'сум', color: '#1a6b3c', icon: '💰' },
-              { label: 'Маржа', value: fmt(stats.margin), unit: `сум · ${stats.margin_percent}%`, color: '#34c759', icon: '📈' },
-              { label: 'Новый долг', value: fmt(stats.debt_new), unit: 'сум', color: stats.debt_new > 0 ? '#ff3b30' : '#34c759', icon: '⏳' },
+              { label: 'Продажи', value: String(stats.sales_count), unit: 'шт', color: '#2481cc', icon: '🧾', rawValue: undefined },
+              { label: 'Выручка', value: fmt(stats.revenue), unit: 'сум', color: '#1a6b3c', icon: '💰', rawValue: stats.revenue },
+              { label: 'Маржа', value: fmt(stats.margin), unit: `сум · ${stats.margin_percent}%`, color: '#34c759', icon: '📈', rawValue: stats.margin },
+              { label: 'Новый долг', value: fmt(stats.debt_new), unit: 'сум', color: stats.debt_new > 0 ? '#ff3b30' : '#34c759', icon: '⏳', rawValue: stats.debt_new },
             ].map(s => (
               <div key={s.label} style={{ background: card, borderRadius: 16, padding: '14px 16px', border: `1px solid ${border}` }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
                   <div style={{ fontSize: 12, color: muted, fontWeight: 600 }}>{s.label}</div>
                   <div style={{ fontSize: 18 }}>{s.icon}</div>
                 </div>
-                <div style={{ fontSize: 22, fontWeight: 800, color: s.color }}>{s.value}</div>
+                <div
+                  style={{ fontSize: 22, fontWeight: 800, color: s.color, cursor: s.rawValue !== undefined ? 'pointer' : 'default' }}
+                  title={s.rawValue !== undefined ? fmtFull(s.rawValue) : undefined}
+                  onClick={() => s.rawValue !== undefined && alert(fmtFull(s.rawValue))}
+                >{s.value}</div>
                 <div style={{ fontSize: 11, color: muted, marginTop: 2 }}>{s.unit}</div>
               </div>
             ))}
@@ -311,9 +476,14 @@ export default function DashboardPage() {
             <div style={{ background: '#ff3b3015', border: '1.5px solid #ff3b3030', borderRadius: 16, padding: '14px 16px' }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: '#ff3b30', marginBottom: 8 }}>⚠️ Мало на складе: {data.low_stock_count} поз.</div>
               {data.low_stock_items.map(item => (
-                <div key={item.name} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: muted, paddingTop: 4 }}>
-                  <span>{item.name}</span>
-                  <span style={{ color: '#ff3b30', fontWeight: 600 }}>{unitDisplay(item.unit, item.unit_value, item.current_stock)} / {item.min_stock} {item.unit}</span>
+                <div key={item.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', fontSize: 12, color: muted, paddingTop: 6 }}>
+                  <div>
+                    <span style={{ color: text, fontWeight: 600 }}>{item.name}</span>
+                    {(item.brand || item.category) && (
+                      <div style={{ fontSize: 10, color: '#2481cc', fontWeight: 600 }}>{[item.brand, item.category].filter(Boolean).join(' · ')}</div>
+                    )}
+                  </div>
+                  <span style={{ color: '#ff3b30', fontWeight: 600, flexShrink: 0, marginLeft: 8 }}>{unitDisplay(item.unit, item.unit_value, item.current_stock)} / {item.min_stock} {item.unit}</span>
                 </div>
               ))}
             </div>
@@ -349,9 +519,18 @@ export default function DashboardPage() {
                   <div style={{ width: 26, height: 26, borderRadius: 8, flexShrink: 0, background: ['#ffd700','#c0c0c0','#cd7f32','#2481cc20','#2481cc20'][i], display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 800, color: i < 3 ? '#1a1a1a' : '#2481cc' }}>{i+1}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
+                    {(p.brand || p.category) && (
+                      <div style={{ fontSize: 10, color: '#2481cc', fontWeight: 600, marginTop: 1 }}>
+                        {[p.brand, p.category].filter(Boolean).join(' · ')}
+                      </div>
+                    )}
                     <div style={{ fontSize: 11, color: muted }}>{unitDisplay(p.unit, p.unit_value, p.total_qty)}</div>
                   </div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#1a6b3c', flexShrink: 0 }}>{fmt(p.total_revenue)} сум</div>
+                  <div
+                    style={{ fontSize: 13, fontWeight: 700, color: '#1a6b3c', flexShrink: 0, cursor: 'pointer' }}
+                    title={fmtFull(p.total_revenue)}
+                    onClick={() => alert(fmtFull(p.total_revenue))}
+                  >{fmt(p.total_revenue)} сум</div>
                 </div>
               ))}
             </div>
@@ -381,6 +560,9 @@ export default function DashboardPage() {
                 <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: i > 0 ? 10 : 0, borderTop: i > 0 ? `1px solid ${border}` : 'none', marginTop: i > 0 ? 10 : 0 }}>
                   <div>
                     <div style={{ fontSize: 13, fontWeight: 600, color: text }}>{r.product_name}</div>
+                    {(r.product_brand || r.product_category) && (
+                      <div style={{ fontSize: 10, color: '#2481cc', fontWeight: 600 }}>{[r.product_brand, r.product_category].filter(Boolean).join(' · ')}</div>
+                    )}
                     <div style={{ fontSize: 11, color: muted }}>👤 {r.customer_name}{r.reason ? ` · ${r.reason}` : ''}</div>
                     <div style={{ fontSize: 11, color: muted }}>{new Date(r.created_at).toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })}</div>
                   </div>

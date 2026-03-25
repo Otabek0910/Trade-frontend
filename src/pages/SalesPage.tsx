@@ -12,6 +12,7 @@ interface Product {
   unit: string                  // ← Единица (шт/л/кг/м/уп...)
   unit_value: number | null     // ← Объём упаковки (3 для канистры 3л)
   purchase_price: number; selling_price: number; current_stock: number; low_stock: boolean
+  purchase_currency: string; purchase_rate: number | null
 }
 export interface CartItem {
   product_id: number
@@ -23,6 +24,8 @@ export interface CartItem {
   selling_price: number
   purchase_price: number
   max_stock: number
+  purchase_currency: string       // 'uzs' | 'usd'
+  purchase_rate: number | null    // курс на момент закупки
 }
 export interface Customer {
   id: number; name: string; phone: string; total_debt: number
@@ -108,6 +111,8 @@ export default function SalesPage() {
         selling_price: product.selling_price,
         purchase_price: product.purchase_price,
         max_stock: product.current_stock,
+        purchase_currency: product.purchase_currency || 'uzs',
+        purchase_rate: product.purchase_rate ?? null,
       }]
     })
   }

@@ -23,6 +23,8 @@ export interface Product {
   brand: string | null
   unit: string
   unit_value: number | null
+  purchase_currency: string        // 'uzs' | 'usd'
+  purchase_rate: number | null     // курс на момент закупки
 }
 
 export default function StockPage() {

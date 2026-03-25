@@ -21,6 +21,9 @@ export interface Product {
   photo_url: string | null
   low_stock: boolean
   margin_percent: number
+  // ── Валюта закупки ──
+  purchase_currency: string        // 'uzs' | 'usd'
+  purchase_rate: number | null     // курс на момент закупки
 }
 
 interface Props {
@@ -41,6 +44,7 @@ export default function EditProductModal({ product, isDark, role, onClose, onUpd
   const [deleting, setDeleting] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [error, setError] = useState('')
+  const [cbuRate, setCbuRate] = useState<number | null>(null)
 
   const [form, setForm] = useState({
     name: product.name,
@@ -52,13 +56,15 @@ export default function EditProductModal({ product, isDark, role, onClose, onUpd
     purchase_price: String(product.purchase_price),
     selling_price: String(product.selling_price),
     min_stock: String(product.min_stock),
+    // ── Валюта закупки ──
+    purchase_currency: product.purchase_currency || 'uzs',
+    purchase_rate: product.purchase_rate ? String(product.purchase_rate) : '',
   })
 
   const [photoUrl, setPhotoUrl] = useState<string | null>(product.photo_url)
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const [lightbox, setLightbox] = useState(false)
 
-  // История цен закупки
   interface PriceRecord { id: number; quantity: number; purchase_price: number; supplier_name: string; storekeeper: string; created_at: string }
   const [priceHistory, setPriceHistory] = useState<{ items: PriceRecord[]; total: number; pages: number } | null>(null)
   const [historyPage, setHistoryPage] = useState(1)
@@ -81,17 +87,41 @@ export default function EditProductModal({ product, isDark, role, onClose, onUpd
 
   useEffect(() => {
     api.get('/suppliers').then(r => setSuppliers(r.data)).catch(() => {})
+    // Тянем курс ЦБУ для подсказки
+    api.get('/rates/today')
+      .then(r => setCbuRate(r.data.cbu_rate))
+      .catch(() => {})
   }, [])
 
   const set = (key: string, val: string) => setForm(f => ({ ...f, [key]: val }))
 
+  const isUsd = form.purchase_currency === 'usd'
+  const canEditPrices = role === 'developer' || product.purchase_price === 0
   const purchaseNum = parseFloat(form.purchase_price) || 0
   const sellingNum = parseFloat(form.selling_price) || 0
-  const margin = purchaseNum > 0 ? Math.round((sellingNum - purchaseNum) / purchaseNum * 100) : 0
+  const rateNum = parseFloat(form.purchase_rate) || 0
   const showUnitValue = form.unit !== 'шт'
+
+  // Маржа с учётом валюты
+  const calcMargin = () => {
+    if (!purchaseNum || !sellingNum) return null
+    if (isUsd) {
+      if (!rateNum) return null
+      const buyUzs = purchaseNum * rateNum
+      const pct = Math.round((sellingNum - buyUzs) / buyUzs * 100)
+      const usd = sellingNum / rateNum - purchaseNum
+      return { pct, uzs: sellingNum - buyUzs, usd }
+    }
+    return { pct: Math.round((sellingNum - purchaseNum) / purchaseNum * 100), uzs: sellingNum - purchaseNum, usd: null }
+  }
+  const margin = calcMargin()
 
   const handleSave = async () => {
     if (!form.name.trim()) { setError('Введите название'); return }
+    if (isUsd && canEditPrices && (!form.purchase_rate || rateNum <= 0)) {
+      setError('Укажите курс доллара на момент закупки')
+      return
+    }
     setSaving(true); setError('')
     try {
       const res = await api.patch(`/products/${product.id}`, {
@@ -104,6 +134,9 @@ export default function EditProductModal({ product, isDark, role, onClose, onUpd
         purchase_price: parseFloat(form.purchase_price),
         selling_price: parseFloat(form.selling_price),
         min_stock: parseInt(form.min_stock) || 5,
+        // ── Валюта ──
+        purchase_currency: form.purchase_currency,
+        purchase_rate: isUsd && form.purchase_rate ? parseFloat(form.purchase_rate) : null,
       })
       onUpdate({ ...res.data, photo_url: photoUrl })
       onClose()
@@ -187,7 +220,7 @@ export default function EditProductModal({ product, isDark, role, onClose, onUpd
             <div style={{ width: 40, height: 4, borderRadius: 2, background: isDark ? '#555' : '#ddd' }} />
           </div>
 
-          {/* Header с аватаркой */}
+          {/* Header */}
           <div style={{ padding: '4px 20px 16px', flexShrink: 0, borderBottom: `1px solid ${border}` }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
               <div style={{ position: 'relative', flexShrink: 0 }}>
@@ -222,7 +255,6 @@ export default function EditProductModal({ product, isDark, role, onClose, onUpd
                 <div style={{ fontSize: 18, fontWeight: 800, color: text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {product.name}
                 </div>
-                {/* Марка под названием */}
                 {product.brand && (
                   <div style={{ fontSize: 12, color: '#2481cc', fontWeight: 600, marginTop: 1 }}>{product.brand}</div>
                 )}
@@ -241,6 +273,12 @@ export default function EditProductModal({ product, isDark, role, onClose, onUpd
                   <span style={{ fontSize: 12, fontWeight: 600, padding: '2px 8px', borderRadius: 8, background: isDark ? '#333' : '#f0f2f5', color: muted }}>
                     {product.margin_percent}% маржа
                   </span>
+                  {/* Бейдж валюты */}
+                  {product.purchase_currency === 'usd' && (
+                    <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 8px', borderRadius: 8, background: '#e0803020', color: '#e08030' }}>
+                      💵 закуп в $
+                    </span>
+                  )}
                 </div>
               </div>
               <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 22, color: muted, cursor: 'pointer', flexShrink: 0 }}>×</button>
@@ -256,7 +294,6 @@ export default function EditProductModal({ product, isDark, role, onClose, onUpd
                 <input style={inputStyle} value={form.name} onChange={e => set('name', e.target.value)} placeholder="Название" />
               </div>
 
-              {/* Марка */}
               <div>
                 <label style={labelStyle}>Марка / Бренд</label>
                 <input style={inputStyle} value={form.brand} onChange={e => set('brand', e.target.value)} placeholder="Например: Mobil 1, Shell, Castrol" />
@@ -267,7 +304,6 @@ export default function EditProductModal({ product, isDark, role, onClose, onUpd
                 <input style={inputStyle} value={form.category} onChange={e => set('category', e.target.value)} placeholder="Например: Масла" />
               </div>
 
-              {/* Единица измерения */}
               <div>
                 <label style={labelStyle}>Единица измерения</label>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -282,7 +318,6 @@ export default function EditProductModal({ product, isDark, role, onClose, onUpd
                 </div>
               </div>
 
-              {/* Объём упаковки */}
               {showUnitValue && (
                 <div>
                   <label style={labelStyle}>
@@ -311,32 +346,103 @@ export default function EditProductModal({ product, isDark, role, onClose, onUpd
                 </select>
               </div>
 
+              {/* ── Валюта закупки — только developer или если цена ещё не задана ── */}
+              {canEditPrices && (
+                <div>
+                  <label style={labelStyle}>Валюта закупки</label>
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                    {(['uzs', 'usd'] as const).map(cur => (
+                      <button key={cur} onClick={() => set('purchase_currency', cur)} style={{
+                        flex: 1, padding: '9px 0', borderRadius: 10,
+                        border: `1.5px solid ${form.purchase_currency === cur ? (cur === 'usd' ? '#e08030' : '#2481cc') : border}`,
+                        background: form.purchase_currency === cur
+                          ? (cur === 'usd' ? '#e0803020' : '#2481cc20')
+                          : (isDark ? '#333' : '#f8f9fa'),
+                        color: form.purchase_currency === cur ? (cur === 'usd' ? '#e08030' : '#2481cc') : muted,
+                        fontWeight: 700, fontSize: 14, cursor: 'pointer',
+                      }}>
+                        {cur === 'uzs' ? '🇺🇿 Сумы' : '🇺🇸 Доллары'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Цена закупки */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <div>
-                  <label style={labelStyle}>Цена закупки</label>
-                  {product.purchase_price > 0 && role !== 'developer' ? (
+                  <label style={labelStyle}>
+                    Цена закупки {isUsd ? '($)' : '(сум)'}
+                  </label>
+                  {canEditPrices ? (
+                    <input style={inputStyle} type="number" value={form.purchase_price}
+                      onChange={e => set('purchase_price', e.target.value)} inputMode="decimal" />
+                  ) : (
                     <div style={{ ...inputStyle, background: isDark ? '#2a2a2a' : '#f0f0f0', color: isDark ? '#777' : '#aaa', cursor: 'not-allowed', display: 'flex', alignItems: 'center' }}>
-                      {form.purchase_price}
+                      {form.purchase_price} {isUsd ? '$' : 'сум'}
                       <span style={{ fontSize: 10, marginLeft: 6, color: isDark ? '#555' : '#bbb' }}>🔒</span>
                     </div>
-                  ) : (
-                    <input style={inputStyle} type="number" value={form.purchase_price} onChange={e => set('purchase_price', e.target.value)} inputMode="decimal" />
                   )}
                 </div>
                 <div>
-                  <label style={labelStyle}>Цена продажи</label>
-                  <input style={inputStyle} type="number" value={form.selling_price} onChange={e => set('selling_price', e.target.value)} inputMode="decimal" />
+                  <label style={labelStyle}>Цена продажи (сум)</label>
+                  <input style={inputStyle} type="number" value={form.selling_price}
+                    onChange={e => set('selling_price', e.target.value)} inputMode="decimal" />
                 </div>
               </div>
 
-              {purchaseNum > 0 && (
+              {/* Курс закупки — если USD */}
+              {isUsd && (
+                <div>
+                  <label style={labelStyle}>
+                    Курс на момент закупки ($)
+                    {cbuRate && (
+                      <span style={{ fontWeight: 400, color: '#34c759', marginLeft: 6 }}>
+                        ЦБУ сегодня: {cbuRate.toLocaleString('ru-RU')} сум
+                      </span>
+                    )}
+                  </label>
+                  {canEditPrices ? (
+                    <>
+                      <input
+                        style={{ ...inputStyle, borderColor: '#e0803060' }}
+                        type="number"
+                        placeholder={cbuRate ? String(cbuRate) : 'Напр. 12800'}
+                        value={form.purchase_rate}
+                        onChange={e => set('purchase_rate', e.target.value)}
+                        inputMode="decimal"
+                      />
+                      {form.purchase_price && form.purchase_rate && (
+                        <div style={{ fontSize: 12, color: '#e08030', marginTop: 4 }}>
+                          💱 {form.purchase_price}$ × {parseFloat(form.purchase_rate).toLocaleString('ru-RU')} ={' '}
+                          {(parseFloat(form.purchase_price) * parseFloat(form.purchase_rate)).toLocaleString('ru-RU')} сум
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div style={{ ...inputStyle, background: isDark ? '#2a2a2a' : '#f0f0f0', color: isDark ? '#777' : '#aaa', cursor: 'not-allowed', display: 'flex', alignItems: 'center' }}>
+                      {form.purchase_rate ? `${parseFloat(form.purchase_rate).toLocaleString('ru-RU')} сум/$` : '—'}
+                      <span style={{ fontSize: 10, marginLeft: 6, color: isDark ? '#555' : '#bbb' }}>🔒</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Маржа */}
+              {margin !== null && (
                 <div style={{
-                  background: margin >= 0 ? '#34c75915' : '#ff3b3015',
-                  border: `1px solid ${margin >= 0 ? '#34c75940' : '#ff3b3040'}`,
+                  background: margin.pct >= 0 ? '#34c75915' : '#ff3b3015',
+                  border: `1px solid ${margin.pct >= 0 ? '#34c75940' : '#ff3b3040'}`,
                   borderRadius: 12, padding: '10px 14px',
                 }}>
-                  <span style={{ fontSize: 13, color: margin >= 0 ? '#34c759' : '#ff3b30', fontWeight: 600 }}>
-                    Маржа: {margin}% (+{Math.round(sellingNum - purchaseNum).toLocaleString('ru-RU')} сум/шт)
+                  <span style={{ fontSize: 13, color: margin.pct >= 0 ? '#34c759' : '#ff3b30', fontWeight: 600 }}>
+                    Маржа: {margin.pct}%
+                    {' '}({margin.uzs >= 0 ? '+' : ''}{Math.round(margin.uzs).toLocaleString('ru-RU')} сум/шт)
+                    {margin.usd !== null && (
+                      <span style={{ marginLeft: 8, opacity: 0.8 }}>
+                        / {margin.usd >= 0 ? '+' : ''}{margin.usd.toFixed(2)}$
+                      </span>
+                    )}
                   </span>
                 </div>
               )}
@@ -360,7 +466,7 @@ export default function EditProductModal({ product, isDark, role, onClose, onUpd
                 {saving ? 'Сохранение...' : '✅ Сохранить изменения'}
               </button>
 
-                            {/* История цен закупки */}
+              {/* История цен закупки */}
               <div style={{ background: card, borderRadius: 16, border: `1px solid ${border}`, overflow: 'hidden' }}>
                 <button onClick={toggleHistory} style={{
                   width: '100%', background: 'none', border: 'none', padding: '14px 16px',
@@ -413,7 +519,7 @@ export default function EditProductModal({ product, isDark, role, onClose, onUpd
                 )}
               </div>
 
-<div style={{ background: card, borderRadius: 16, padding: '14px 16px', border: `1px solid ${border}` }}>
+              <div style={{ background: card, borderRadius: 16, padding: '14px 16px', border: `1px solid ${border}` }}>
                 <div style={{ fontSize: 12, color: muted, marginBottom: 10 }}>
                   Удаление товара невозможно отменить. Товар не удалится если есть связанные продажи.
                 </div>
