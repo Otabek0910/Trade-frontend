@@ -125,9 +125,12 @@ export default function SupplierDetailModal({ supplierId, token, isDark, onClose
 
   const headers = { Authorization: `Bearer ${token}` }
 
-  // ─── Загрузка данных поставщика ───────────────────────────────────────────
+// ─── Загрузка данных поставщика ───────────────────────────────────────────
   useEffect(() => {
-    axios.get(`/suppliers/${supplierId}`, { headers: { Authorization: `Bearer ${token}` } })
+    const h = { headers: { Authorization: `Bearer ${token}` } }
+
+    // Основные данные поставщика
+    axios.get(`/suppliers/${supplierId}`, h)
       .then(r => {
         setData(r.data)
         setEditName(r.data.name)
@@ -137,7 +140,28 @@ export default function SupplierDetailModal({ supplierId, token, isDark, onClose
         setLoading(false)
       })
       .catch(() => setLoading(false))
+
+    // Возвраты — грузим сразу, чтобы счётчик в шапке работал
+    axios.get(`/supplier-returns/supplier/${supplierId}`, h)
+      .then(r => setSupplierReturns(r.data))
+      .catch(() => {})
   }, [supplierId, token])
+
+  // ─── Обновление возвратов при переходе на таб (для свежих данных) ──────────
+  useEffect(() => {
+    if (tab !== 'returns') return
+    const load = async () => {
+      setReturnsLoading(true)
+      try {
+        const r = await axios.get(`/supplier-returns/supplier/${supplierId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        setSupplierReturns(r.data)
+      } catch { /* silent */ }
+      setReturnsLoading(false)
+    }
+    void load()
+  }, [tab, supplierId, token])
 
   // ─── Загрузка возвратов при переходе на таб ───────────────────────────────
   useEffect(() => {

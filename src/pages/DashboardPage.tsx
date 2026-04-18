@@ -1,65 +1,68 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../api'
-// useAuth removed - token handled by api.ts interceptor
 import { unitDisplay } from './sales/unitHelpers'
 
+// ── Interfaces ─────────────────────────────────────────────────────────────────
+interface TopProduct {
+  name: string; brand: string | null; category: string | null
+  total_qty: number; total_revenue: number; unit: string; unit_value: number | null
+}
+interface ReturnItem {
+  id: number; product_name: string; product_brand: string | null; product_category: string | null
+  customer_name: string; quantity: number; return_amount: number
+  reason: string | null; created_at: string; unit: string; unit_value: number | null
+}
 interface PeriodStats {
   sales_count: number; revenue: number; paid: number
   debt_new: number; margin: number; margin_percent: number
   expenses: number; returns: number; net_profit: number
 }
+// Каждый период теперь содержит свои данные (топ товары, расходы, касса, возвраты)
+interface PeriodFull extends PeriodStats {
+  top_products: TopProduct[]
+  expenses_by_category: { category: string; total: number }[]
+  cash_by_type: Record<string, { total: number; count: number }>
+  recent_returns: ReturnItem[]
+}
 interface DashboardData {
-  today: PeriodStats; week: PeriodStats; month: PeriodStats
-  top_products: { name: string; brand: string | null; category: string | null; total_qty: number; total_revenue: number; unit: string; unit_value: number | null }[]
+  today: PeriodFull; week: PeriodFull; month: PeriodFull
   top_debtors: { id: number; name: string; phone: string; total_debt: number; total_purchases: number }[]
   low_stock_count: number
   low_stock_items: { name: string; brand: string | null; category: string | null; current_stock: number; min_stock: number; unit: string; unit_value: number | null }[]
-  expenses_by_category: { category: string; total: number }[]
-  recent_returns: { id: number; product_name: string; product_brand: string | null; product_category: string | null; customer_name: string; quantity: number; return_amount: number; reason: string | null; created_at: string; unit: string; unit_value: number | null }[]
   seller_stats: { name: string; sales_count: number; revenue: number; paid: number; debt: number }[]
-  cash_by_type: Record<string, { total: number; count: number }>
   returns_month_total: number
   cash_alltime: number
   total_customer_debt: number
   total_supplier_debt: number
+  total_supplier_credit: number
   stock_value: number
+}
+interface HistoryStats extends PeriodStats {
+  top_products: TopProduct[]
+  expenses_by_category: { category: string; total: number }[]
+  cash_by_type: Record<string, { total: number; count: number }>
+  recent_returns: ReturnItem[]
+  period: { type: string; year: number; month: number | null; date_from: string; date_to: string }
 }
 type Period = 'today' | 'week' | 'month' | 'history'
 
 const PAYMENT_LABELS: Record<string, string> = { cash: '💵 Наличные', card: '💳 Карта', transfer: '📲 Перевод' }
 const PAYMENT_COLORS: Record<string, string> = { cash: '#34c759', card: '#2481cc', transfer: '#7a3b8c' }
 const EXPENSE_COLORS = ['#e05555','#e08030','#e0a030','#7a3b8c','#2481cc','#1a6b3c','#888','#bbb']
+const PERIOD_LABELS: Record<Period, string> = {
+  today: 'сегодня', week: 'за неделю', month: 'за месяц', history: 'за период'
+}
 
-// Форматирует число: 1.2М / 345К / 123 — корректно для отрицательных
 const fmt = (n: number) => {
-  const abs = Math.abs(n)
-  const sign = n < 0 ? '−' : ''
+  const abs = Math.abs(n); const sign = n < 0 ? '−' : ''
   if (abs >= 1_000_000) return `${sign}${(abs/1_000_000).toFixed(1)}М`
   if (abs >= 1_000)     return `${sign}${(abs/1_000).toFixed(0)}К`
   return `${sign}${Math.round(abs)}`
 }
-// Полная цифра для тапа: 1 924 500
-const fmtFull = (n: number) => Math.round(n).toLocaleString('ru-RU') + ' сум' 
-const fmtUsd  = (n: number, rate: number) => {
-  const d = n / rate
-  const sign = d < 0 ? '−' : ''
-  const abs = Math.abs(d)
-  if (abs >= 1000) return `${sign}$${(abs/1000).toFixed(1)}K`
-  return `${sign}$${abs.toFixed(0)}`
-}
-function readCbuForDashboard(): number | null {
-  try {
-    const raw = localStorage.getItem('cbu_rate_cache')
-    if (!raw) return null
-    const c = JSON.parse(raw)
-    const today = new Date().toISOString().slice(0, 10)
-    if (c.date !== today) return null
-    return typeof c.rate === 'number' ? c.rate : null
-  } catch { return null }
-}
+const fmtFull = (n: number) => Math.round(n).toLocaleString('ru-RU') + ' сум'
 
-// ── SVG Donut ────────────────────────────────────────────────────────────────
+// ── SVG Donut ─────────────────────────────────────────────────────────────────
 function DonutChart({ segments, size = 80 }: { segments: { value: number; color: string }[]; size?: number }) {
   const total = segments.reduce((s, g) => s + g.value, 0)
   if (total === 0) return <div style={{ width: size, height: size, borderRadius: '50%', background: '#e8eaed' }} />
@@ -88,60 +91,67 @@ function MiniBar({ value, max, color }: { value: number; max: number; color: str
   )
 }
 
-
-interface HistoryProduct {
-  name: string; brand: string | null; category: string | null
-  total_qty: number; total_revenue: number; unit: string; unit_value: number | null
-}
-interface HistoryStats {
-  sales_count: number; revenue: number; margin: number; margin_percent: number
-  expenses: number; returns: number; net_profit: number
-  top_products: HistoryProduct[]
-  period: { type: string; year: number; month: number | null }
-}
-
-// ── HistoryBlock ─────────────────────────────────────────────────────────────
+// ── HistoryBlock ──────────────────────────────────────────────────────────────
 const MONTHS = ['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек']
 
-function HistoryBlock({ year, month, data, loading, isDark, card, text, muted, border, onYearChange, onMonthChange, fmt, fmtFull }: {
-  year: number; month: number | null; data: HistoryStats | null; loading: boolean
+function HistoryBlock({ year, month, alltime, data, loading, isDark, card, text, muted, border,
+  onYearChange, onMonthChange, onAlltimeChange, fmt, fmtFull }: {
+  year: number; month: number | null; alltime: boolean; data: HistoryStats | null; loading: boolean
   isDark: boolean; card: string; text: string; muted: string; border: string
-  onYearChange: (y: number) => void; onMonthChange: (m: number | null) => void
+  onYearChange: (y: number) => void
+  onMonthChange: (m: number | null) => void
+  onAlltimeChange: (v: boolean) => void
   fmt: (n: number) => string; fmtFull: (n: number) => string
 }) {
   const currentYear = new Date().getFullYear()
   const years = Array.from({ length: 3 }, (_, i) => currentYear - i)
+  const cashTotal = Object.values(data?.cash_by_type ?? {}).reduce((s, x) => s + x.total, 0)
+  const maxExpense = data?.expenses_by_category[0]?.total ?? 1
 
   return (
     <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
 
-      {/* Выбор года */}
-      <div style={{ display: 'flex', gap: 6 }}>
-        {years.map(y => (
-          <button key={y} onClick={() => onYearChange(y)} style={{
-            flex: 1, padding: '8px 0', borderRadius: 10, border: `1.5px solid ${year === y ? '#2481cc' : border}`,
-            background: year === y ? '#2481cc20' : (isDark ? '#333' : '#f8f9fa'),
-            color: year === y ? '#2481cc' : muted, fontWeight: 700, fontSize: 13, cursor: 'pointer',
-          }}>{y}</button>
-        ))}
-      </div>
+      {/* ── Всё время ── */}
+      <button onClick={() => onAlltimeChange(!alltime)} style={{
+        width: '100%', padding: '10px 0', borderRadius: 12,
+        border: `2px solid ${alltime ? '#e08030' : border}`,
+        background: alltime ? '#e0803020' : (isDark ? '#333' : '#f8f9fa'),
+        color: alltime ? '#e08030' : muted, fontWeight: 700, fontSize: 13, cursor: 'pointer',
+      }}>🗂 {alltime ? '✅ Вся история (всё время)' : 'Всё время (с первой продажи)'}</button>
 
-      {/* Выбор месяца + Всё время */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 5 }}>
-        <button onClick={() => onMonthChange(null)} style={{
-          gridColumn: '1 / -1', padding: '8px 0', borderRadius: 10,
-          border: `1.5px solid ${month === null ? '#e08030' : border}`,
-          background: month === null ? '#e0803020' : (isDark ? '#333' : '#f8f9fa'),
-          color: month === null ? '#e08030' : muted, fontWeight: 700, fontSize: 12, cursor: 'pointer',
-        }}>🗂 Весь {year} год</button>
-        {MONTHS.map((m, idx) => (
-          <button key={idx} onClick={() => onMonthChange(idx + 1)} style={{
-            padding: '7px 0', borderRadius: 8, border: `1.5px solid ${month === idx + 1 ? '#2481cc' : border}`,
-            background: month === idx + 1 ? '#2481cc20' : (isDark ? '#333' : '#f8f9fa'),
-            color: month === idx + 1 ? '#2481cc' : muted, fontWeight: 600, fontSize: 12, cursor: 'pointer',
-          }}>{m}</button>
-        ))}
-      </div>
+      {!alltime && (
+        <>
+          {/* Выбор года */}
+          <div style={{ display: 'flex', gap: 6 }}>
+            {years.map(y => (
+              <button key={y} onClick={() => onYearChange(y)} style={{
+                flex: 1, padding: '8px 0', borderRadius: 10,
+                border: `1.5px solid ${year === y ? '#2481cc' : border}`,
+                background: year === y ? '#2481cc20' : (isDark ? '#333' : '#f8f9fa'),
+                color: year === y ? '#2481cc' : muted, fontWeight: 700, fontSize: 13, cursor: 'pointer',
+              }}>{y}</button>
+            ))}
+          </div>
+
+          {/* Выбор месяца */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 5 }}>
+            <button onClick={() => onMonthChange(null)} style={{
+              gridColumn: '1 / -1', padding: '8px 0', borderRadius: 10,
+              border: `1.5px solid ${month === null ? '#2481cc' : border}`,
+              background: month === null ? '#2481cc20' : (isDark ? '#333' : '#f8f9fa'),
+              color: month === null ? '#2481cc' : muted, fontWeight: 700, fontSize: 12, cursor: 'pointer',
+            }}>📅 Весь {year} год</button>
+            {MONTHS.map((m, idx) => (
+              <button key={idx} onClick={() => onMonthChange(idx + 1)} style={{
+                padding: '7px 0', borderRadius: 8,
+                border: `1.5px solid ${month === idx + 1 ? '#2481cc' : border}`,
+                background: month === idx + 1 ? '#2481cc20' : (isDark ? '#333' : '#f8f9fa'),
+                color: month === idx + 1 ? '#2481cc' : muted, fontWeight: 600, fontSize: 12, cursor: 'pointer',
+              }}>{m}</button>
+            ))}
+          </div>
+        </>
+      )}
 
       {/* Данные */}
       {loading ? (
@@ -150,10 +160,20 @@ function HistoryBlock({ year, month, data, loading, isDark, card, text, muted, b
         <div style={{ textAlign: 'center', padding: 40, color: muted }}>Выберите период</div>
       ) : (
         <>
+          {/* Заголовок периода */}
+          {data.period && (
+            <div style={{ background: isDark ? '#333' : '#f0f2f5', borderRadius: 10, padding: '8px 12px', fontSize: 12, color: muted, textAlign: 'center' }}>
+              {data.period.type === 'alltime' ? '🗂 Вся история' :
+               data.period.type === 'month' ? `📅 ${MONTHS[(data.period.month ?? 1) - 1]} ${data.period.year}` :
+               `📅 Весь ${data.period.year} год`}
+              {' · '}{data.period.date_from} → {data.period.date_to}
+            </div>
+          )}
+
           {/* Метрики */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             {[
-              { label: 'Продажи', value: String(data.sales_count), unit: 'шт', color: '#2481cc', icon: '🧾', raw: undefined },
+              { label: 'Продажи', value: String(data.sales_count), unit: 'шт', color: '#2481cc', icon: '🧾', raw: undefined as number | undefined },
               { label: 'Выручка', value: fmt(data.revenue), unit: 'сум', color: '#1a6b3c', icon: '💰', raw: data.revenue },
               { label: 'Маржа', value: fmt(data.margin), unit: `сум · ${data.margin_percent}%`, color: '#34c759', icon: '📈', raw: data.margin },
               { label: 'Чистая', value: fmt(data.net_profit), unit: 'сум', color: data.net_profit >= 0 ? '#34c759' : '#ff3b30', icon: '🏦', raw: data.net_profit },
@@ -172,9 +192,9 @@ function HistoryBlock({ year, month, data, loading, isDark, card, text, muted, b
             ))}
           </div>
 
-          {/* Расходы / Возвраты */}
+          {/* Расходы + возвраты */}
           <div style={{
-            background: data.net_profit >= 0 ? (isDark ? 'rgba(52,199,89,0.12)' : 'rgba(52,199,89,0.08)') : (isDark ? 'rgba(255,59,48,0.12)' : 'rgba(255,59,48,0.08)'),
+            background: data.net_profit >= 0 ? 'rgba(52,199,89,0.08)' : 'rgba(255,59,48,0.08)',
             border: `1.5px solid ${data.net_profit >= 0 ? '#34c75940' : '#ff3b3040'}`,
             borderRadius: 16, padding: '14px 16px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8,
           }}>
@@ -189,13 +209,57 @@ function HistoryBlock({ year, month, data, loading, isDark, card, text, muted, b
             ))}
           </div>
 
-          {/* Топ товаров */}
-          {data.top_products?.length > 0 && (
+          {/* Касса по типам */}
+          {Object.keys(data.cash_by_type).length > 0 && (
             <div style={{ background: card, borderRadius: 16, padding: '14px 16px', border: `1px solid ${border}` }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 }}>
-                🏆 Топ товаров
+              <div style={{ fontSize: 12, fontWeight: 700, color: muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 }}>💰 Касса за период</div>
+              <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+                <DonutChart size={86} segments={Object.entries(data.cash_by_type).map(([type, d]) => ({ value: d.total, color: PAYMENT_COLORS[type] || '#888' }))} />
+                <div style={{ flex: 1 }}>
+                  {Object.entries(data.cash_by_type).map(([type, d]) => (
+                    <div key={type} style={{ marginBottom: 7 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                        <span style={{ color: text }}>{PAYMENT_LABELS[type] || type}</span>
+                        <span style={{ fontWeight: 700, color: PAYMENT_COLORS[type] || '#888' }}>{fmt(d.total)} сум</span>
+                      </div>
+                      <MiniBar value={d.total} max={cashTotal} color={PAYMENT_COLORS[type] || '#888'} />
+                    </div>
+                  ))}
+                  <div style={{ borderTop: `1px solid ${border}`, paddingTop: 6, display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                    <span style={{ color: muted }}>Итого получено</span>
+                    <span style={{ fontWeight: 800, color: text }}>{fmt(cashTotal)} сум</span>
+                  </div>
+                </div>
               </div>
-              {data.top_products.map((p: HistoryProduct, i: number) => (
+            </div>
+          )}
+
+          {/* Расходы по категориям */}
+          {data.expenses_by_category.length > 0 && (
+            <div style={{ background: card, borderRadius: 16, padding: '14px 16px', border: `1px solid ${border}` }}>
+              <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+                <DonutChart size={80} segments={data.expenses_by_category.map((e, i) => ({ value: e.total, color: EXPENSE_COLORS[i % 8] }))} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>💸 Расходы по категориям</div>
+                  {data.expenses_by_category.map((e, i) => (
+                    <div key={e.category} style={{ marginBottom: 6 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                        <span style={{ color: text }}>{e.category}</span>
+                        <span style={{ fontWeight: 600, color: EXPENSE_COLORS[i % 8] }}>{fmt(e.total)}</span>
+                      </div>
+                      <MiniBar value={e.total} max={maxExpense} color={EXPENSE_COLORS[i % 8]} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Топ товаров */}
+          {data.top_products.length > 0 && (
+            <div style={{ background: card, borderRadius: 16, padding: '14px 16px', border: `1px solid ${border}` }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 }}>🏆 Топ товаров</div>
+              {data.top_products.map((p, i) => (
                 <div key={p.name} style={{ display: 'flex', alignItems: 'center', gap: 10, paddingTop: i > 0 ? 10 : 0, borderTop: i > 0 ? `1px solid ${border}` : 'none', marginTop: i > 0 ? 10 : 0 }}>
                   <div style={{ width: 26, height: 26, borderRadius: 8, flexShrink: 0, background: ['#ffd700','#c0c0c0','#cd7f32','#2481cc20','#2481cc20'][i] ?? '#2481cc20', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 800, color: i < 3 ? '#1a1a1a' : '#2481cc' }}>{i+1}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -203,7 +267,7 @@ function HistoryBlock({ year, month, data, loading, isDark, card, text, muted, b
                     {(p.brand || p.category) && (
                       <div style={{ fontSize: 10, color: '#2481cc', fontWeight: 600 }}>{[p.brand, p.category].filter(Boolean).join(' · ')}</div>
                     )}
-                    <div style={{ fontSize: 11, color: muted }}>{p.total_qty} шт</div>
+                    <div style={{ fontSize: 11, color: muted }}>{unitDisplay(p.unit, p.unit_value, p.total_qty)}</div>
                   </div>
                   <div style={{ fontSize: 13, fontWeight: 700, color: '#1a6b3c', flexShrink: 0, cursor: 'pointer' }}
                     onClick={() => alert(fmtFull(p.total_revenue))}
@@ -218,6 +282,7 @@ function HistoryBlock({ year, month, data, loading, isDark, card, text, muted, b
   )
 }
 
+// ── Main Dashboard ────────────────────────────────────────────────────────────
 export default function DashboardPage() {
   const navigate = useNavigate()
   const tg = window.Telegram?.WebApp
@@ -226,24 +291,29 @@ export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [period, setPeriod] = useState<Period>('today')
-  const [histYear, setHistYear] = useState(new Date().getFullYear())
-  const [histMonth, setHistMonth] = useState<number | null>(null) // null = всё время
-  const [histData, setHistData] = useState<HistoryStats | null>(null)
+
+  // История
+  const [histYear, setHistYear]   = useState(new Date().getFullYear())
+  const [histMonth, setHistMonth] = useState<number | null>(null)
+  const [histAlltime, setHistAlltime] = useState(false)
+  const [histData, setHistData]   = useState<HistoryStats | null>(null)
   const [histLoading, setHistLoading] = useState(false)
-  const [exportDays, setExportDays] = useState(30)
-  const [exporting, setExporting] = useState(false)
+
+  // Экспорт
+  const [exportDays, setExportDays]     = useState(30)
+  const [exporting, setExporting]       = useState(false)
   const [exportSuccess, setExportSuccess] = useState('')
+  const [exportingPdf, setExportingPdf] = useState(false)
   const [importResult, setImportResult] = useState('')
-  const [resetting, setResetting] = useState(false)
+  const [resetting, setResetting]       = useState(false)
   const [confirmReset, setConfirmReset] = useState(false)
-  const [backingUp, setBackingUp] = useState(false)
-  const [restoring, setRestoring] = useState(false)
-  const [showUsd, setShowUsd] = useState(false)
-  const [dashCbuRate] = useState<number | null>(readCbuForDashboard)
+  const [backingUp, setBackingUp]       = useState(false)
+  const [restoring, setRestoring]       = useState(false)
 
   const isMobileTg = !!(tg && (tg as unknown as { platform?: string }).platform &&
     !['macos', 'tdesktop', 'web'].includes((tg as unknown as { platform?: string }).platform ?? ''))
 
+  // ── Загрузка главного дашборда ──────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false
     api.get('/dashboard')
@@ -252,26 +322,32 @@ export default function DashboardPage() {
     return () => { cancelled = true }
   }, [])
 
-  // Загрузка исторических данных при переходе на вкладку История
+  // ── Загрузка исторических данных ────────────────────────────────────────────
   useEffect(() => {
     if (period !== 'history') return
-    let cancelled = false
-        const params = histMonth !== null
-      ? `?year=${histYear}&month=${histMonth}`
-      : `?year=${histYear}`
-    api.get(`/dashboard/history${params}`)
-      .then(r => { if (!cancelled) { setHistData(r.data); setHistLoading(false) } })
-      .catch(() => { if (!cancelled) setHistLoading(false) })
-      return () => { cancelled = true }
-  }, [period, histYear, histMonth])
-
+    const load = async () => {
+      setHistLoading(true)
+      setHistData(null)
+      try {
+        const params = histAlltime
+          ? `?year=${histYear}&alltime=true`
+          : histMonth !== null
+            ? `?year=${histYear}&month=${histMonth}`
+            : `?year=${histYear}`
+        const r = await api.get(`/dashboard/history${params}`)
+        setHistData(r.data)
+      } catch { /* silent */ }
+      setHistLoading(false)
+    }
+    void load()
+  }, [period, histYear, histMonth, histAlltime])
 
   const handleReset = async () => {
     setResetting(true)
     try {
       await api.post('/export/reset', {})
       setConfirmReset(false)
-      navigate('/')  // не reload — чтобы не потерять токен
+      navigate('/')
     } catch (err: unknown) {
       const e = err as { response?: { data?: { detail?: string } } }
       setImportResult(`❌ ${e?.response?.data?.detail || 'Ошибка сброса'}`)
@@ -282,29 +358,21 @@ export default function DashboardPage() {
   const handleDbBackup = async () => {
     setBackingUp(true)
     try {
-      const res = await api.get('/export/db-backup', {
-        responseType: 'blob',
-      })
+      const res = await api.get('/export/db-backup', { responseType: 'blob' })
       const url = URL.createObjectURL(new Blob([res.data]))
       const a = document.createElement('a')
-      a.href = url
-      a.download = `tradi_backup_${new Date().toISOString().slice(0,10)}.sql`
-      a.click()
+      a.href = url; a.download = `tradi_backup_${new Date().toISOString().slice(0,10)}.sql`; a.click()
       URL.revokeObjectURL(url)
-    } catch {
-      setImportResult('❌ Ошибка создания бэкапа')
-    }
+    } catch { setImportResult('❌ Ошибка создания бэкапа') }
     setBackingUp(false)
   }
 
   const handleDbRestore = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    setRestoring(true)
-    setImportResult('')
+    setRestoring(true); setImportResult('')
     try {
-      const form = new FormData()
-      form.append('file', file)
+      const form = new FormData(); form.append('file', file)
       await api.post('/export/db-restore', form)
       setImportResult('✅ БД восстановлена! Перезайдите в приложение.')
       setTimeout(() => navigate('/'), 3000)
@@ -312,8 +380,7 @@ export default function DashboardPage() {
       const e = err as { response?: { data?: { detail?: string } } }
       setImportResult(`❌ ${e?.response?.data?.detail || 'Ошибка восстановления'}`)
     }
-    setRestoring(false)
-    e.target.value = ''
+    setRestoring(false); e.target.value = ''
   }
 
   const handleExport = async () => {
@@ -334,21 +401,41 @@ export default function DashboardPage() {
     setExporting(false)
   }
 
-  const bg = isDark ? '#1a1a1a' : '#f0f2f5'
-  const card = isDark ? '#242424' : '#ffffff'
-  const text = isDark ? '#ffffff' : '#1a1a1a'
-  const muted = isDark ? '#666' : '#999'
-  const border = isDark ? '#333' : '#e8eaed'
+  const handlePdfReport = async () => {
+    setExportingPdf(true)
+    try {
+      const res = await api.get('/export/pdf-report', { responseType: 'blob' })
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }))
+      const a = document.createElement('a'); a.href = url
+      a.download = `tradi_report_${new Date().toISOString().slice(0,10)}.pdf`; a.click()
+      window.URL.revokeObjectURL(url)
+    } catch { alert('Ошибка генерации PDF') }
+    setExportingPdf(false)
+  }
+
+  const bg     = isDark ? '#1a1a1a' : '#f0f2f5'
+  const card   = isDark ? '#242424' : '#ffffff'
+  const text   = isDark ? '#ffffff' : '#1a1a1a'
+  const muted  = isDark ? '#666'    : '#999'
+  const border = isDark ? '#333'    : '#e8eaed'
+
+  // Текущий период — теперь включает top_products, cash_by_type, expenses_by_category, recent_returns
   const stats = period !== 'history' ? data?.[period as 'today' | 'week' | 'month'] : null
-  const maxExpense = data?.expenses_by_category[0]?.total ?? 1
-  // Универсальное форматирование: сум или $ в зависимости от переключателя
-  const fmtM = (n: number) => showUsd && dashCbuRate ? fmtUsd(n, dashCbuRate) : fmt(n)
-  const unitM = showUsd && dashCbuRate ? '$' : 'сум'
-  const cashTotal = Object.values(data?.cash_by_type ?? {}).reduce((s, x) => s + x.total, 0)
+
+  // Для секций, зависящих от периода
+  const periodTopProducts    = stats?.top_products    ?? []
+  const periodExpenses       = stats?.expenses_by_category ?? []
+  const periodCashByType     = stats?.cash_by_type    ?? {}
+  const periodRecentReturns  = stats?.recent_returns  ?? []
+  const maxExpense = periodExpenses[0]?.total ?? 1
+  const cashTotal  = Object.values(periodCashByType).reduce((s, x) => s + x.total, 0)
+
+  const periodLabel = period !== 'history' ? PERIOD_LABELS[period] : ''
 
   return (
     <div style={{ minHeight: '100vh', background: bg, display: 'flex', flexDirection: 'column', paddingBottom: 32 }}>
 
+      {/* ── Хедер + табы ── */}
       <div style={{ background: card, padding: '14px 16px 10px', boxShadow: `0 1px 0 ${border}` }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
           <button onClick={() => navigate('/')} style={{ background: isDark ? '#333' : '#f0f2f5', border: 'none', borderRadius: 10, width: 34, height: 34, fontSize: 16, cursor: 'pointer', flexShrink: 0 }}>←</button>
@@ -356,45 +443,48 @@ export default function DashboardPage() {
           {(data?.low_stock_count ?? 0) > 0 && (
             <div style={{ background: '#ff3b30', borderRadius: 10, padding: '3px 8px', fontSize: 12, color: '#fff', fontWeight: 700 }}>⚠️ {data!.low_stock_count}</div>
           )}
-          {dashCbuRate && (
-            <button onClick={() => setShowUsd(s => !s)} style={{
-              background: showUsd ? '#e08030' : (isDark ? '#333' : '#f0f2f5'),
-              border: `1.5px solid ${showUsd ? '#e08030' : (isDark ? '#444' : '#e8eaed')}`,
-              borderRadius: 10, padding: '4px 10px', fontSize: 12, fontWeight: 700,
-              color: showUsd ? '#fff' : (isDark ? '#888' : '#999'), cursor: 'pointer',
-            }}>{showUsd ? '💵 $' : 'сум'}</button>
-          )}
         </div>
         <div style={{ display: 'flex', gap: 4, background: isDark ? '#333' : '#f0f2f5', borderRadius: 10, padding: 3 }}>
           {(['today', 'week', 'month', 'history'] as Period[]).map(p => (
             <button key={p} onClick={() => setPeriod(p)} style={{
               flex: 1, border: 'none', borderRadius: 8, padding: '7px 0', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-              background: period === p ? card : 'transparent', color: period === p ? text : muted,
-              boxShadow: period === p ? '0 1px 3px rgba(0,0,0,0.12)' : 'none', transition: 'all 0.15s',
+              background: period === p ? card : 'transparent',
+              color: period === p ? text : muted,
+              boxShadow: period === p ? '0 1px 3px rgba(0,0,0,0.12)' : 'none',
+              transition: 'all 0.15s',
             }}>{p === 'today' ? 'Сегодня' : p === 'week' ? 'Неделя' : p === 'month' ? 'Месяц' : '📅 История'}</button>
           ))}
         </div>
       </div>
 
+      {/* ── История ── */}
       {period === 'history' ? (
         <HistoryBlock
-          year={histYear} month={histMonth} data={histData} loading={histLoading}
+          year={histYear} month={histMonth} alltime={histAlltime}
+          data={histData} loading={histLoading}
           isDark={isDark} card={card} text={text} muted={muted} border={border}
-          onYearChange={setHistYear} onMonthChange={setHistMonth}
+          onYearChange={y => { setHistAlltime(false); setHistYear(y) }}
+          onMonthChange={m => { setHistAlltime(false); setHistMonth(m) }}
+          onAlltimeChange={v => setHistAlltime(v)}
           fmt={fmt} fmtFull={fmtFull}
         />
+
       ) : loading || !data || !stats ? (
-        <div style={{ textAlign: 'center', padding: 60, color: muted }}><div style={{ fontSize: 36, marginBottom: 12 }}>📊</div>{loading ? 'Загрузка...' : 'Нет данных'}</div>
+        <div style={{ textAlign: 'center', padding: 60, color: muted }}>
+          <div style={{ fontSize: 36, marginBottom: 12 }}>📊</div>
+          {loading ? 'Загрузка...' : 'Нет данных'}
+        </div>
+
       ) : (
         <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
 
           {/* ── Основные метрики ── */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             {[
-              { label: 'Продажи', value: String(stats.sales_count), unit: 'шт', color: '#2481cc', icon: '🧾', rawValue: undefined },
-              { label: 'Выручка', value: fmtM(stats.revenue), unit: unitM, color: '#1a6b3c', icon: '💰', rawValue: stats.revenue },
-              { label: 'Маржа', value: fmtM(stats.margin), unit: `${unitM} · ${stats.margin_percent}%`, color: '#34c759', icon: '📈', rawValue: stats.margin },
-              { label: 'Новый долг', value: fmtM(stats.debt_new), unit: unitM, color: stats.debt_new > 0 ? '#ff3b30' : '#34c759', icon: '⏳', rawValue: stats.debt_new },
+              { label: 'Продажи', value: String(stats.sales_count), unit: 'шт', color: '#2481cc', icon: '🧾', rawValue: undefined as number | undefined },
+              { label: 'Выручка',  value: fmt(stats.revenue),   unit: 'сум', color: '#1a6b3c', icon: '💰', rawValue: stats.revenue },
+              { label: 'Маржа',    value: fmt(stats.margin),    unit: `сум · ${stats.margin_percent}%`, color: '#34c759', icon: '📈', rawValue: stats.margin },
+              { label: 'Новый долг', value: fmt(stats.debt_new), unit: 'сум', color: stats.debt_new > 0 ? '#ff3b30' : '#34c759', icon: '⏳', rawValue: stats.debt_new },
             ].map(s => (
               <div key={s.label} style={{ background: card, borderRadius: 16, padding: '14px 16px', border: `1px solid ${border}` }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -418,9 +508,9 @@ export default function DashboardPage() {
             borderRadius: 16, padding: '14px 16px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8,
           }}>
             {[
-              { label: '💸 Расходы', value: `−${fmtM(stats.expenses)}`, color: '#e05555' },
-              { label: '↩️ Возвраты', value: `−${fmtM(stats.returns)}`, color: '#e08030' },
-              { label: '🏦 Чистая', value: `${stats.net_profit >= 0 ? '+' : ''}${fmtM(stats.net_profit)}`, color: stats.net_profit >= 0 ? '#34c759' : '#ff3b30' },
+              { label: '💸 Расходы', value: `−${fmt(stats.expenses)}`, color: '#e05555' },
+              { label: '↩️ Возвраты', value: `−${fmt(stats.returns)}`, color: '#e08030' },
+              { label: '🏦 Чистая', value: `${stats.net_profit >= 0 ? '+' : ''}${fmt(stats.net_profit)}`, color: stats.net_profit >= 0 ? '#34c759' : '#ff3b30' },
             ].map((s, i) => (
               <div key={i} style={{ textAlign: 'center', borderLeft: i > 0 ? `1px solid ${border}` : 'none' }}>
                 <div style={{ fontSize: 10, color: muted, marginBottom: 4 }}>{s.label}</div>
@@ -429,58 +519,66 @@ export default function DashboardPage() {
             ))}
           </div>
 
-          {/* ── Касса ── */}
+          {/* ── Касса по типам (для выбранного периода) ── */}
           <div style={{ background: card, borderRadius: 16, padding: '14px 16px', border: `1px solid ${border}` }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 }}>💰 Касса за месяц</div>
-            {Object.keys(data.cash_by_type).length > 0 ? (
+            <div style={{ fontSize: 12, fontWeight: 700, color: muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 }}>
+              💰 Касса {periodLabel}
+            </div>
+            {Object.keys(periodCashByType).length > 0 ? (
               <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-                <DonutChart size={86} segments={Object.entries(data.cash_by_type).map(([type, d]) => ({ value: d.total, color: PAYMENT_COLORS[type] || '#888' }))} />
+                <DonutChart size={86} segments={Object.entries(periodCashByType).map(([type, d]) => ({ value: d.total, color: PAYMENT_COLORS[type] || '#888' }))} />
                 <div style={{ flex: 1 }}>
-                  {Object.entries(data.cash_by_type).map(([type, d]) => (
+                  {Object.entries(periodCashByType).map(([type, d]) => (
                     <div key={type} style={{ marginBottom: 7 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
                         <span style={{ color: text }}>{PAYMENT_LABELS[type] || type}</span>
-                        <span style={{ fontWeight: 700, color: PAYMENT_COLORS[type] || '#888' }}>{fmtM(d.total)} {unitM}</span>
+                        <span style={{ fontWeight: 700, color: PAYMENT_COLORS[type] || '#888' }}>{fmt(d.total)} сум</span>
                       </div>
                       <MiniBar value={d.total} max={cashTotal} color={PAYMENT_COLORS[type] || '#888'} />
                     </div>
                   ))}
                   <div style={{ borderTop: `1px solid ${border}`, paddingTop: 6, display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                    <span style={{ color: muted }}>Итого получено</span>
-                    <span style={{ fontWeight: 800, color: text }}>{fmtM(cashTotal)} {unitM}</span>
+                    <span style={{ color: muted }}>Итого за период</span>
+                    <span style={{ fontWeight: 800, color: text }}>{fmt(cashTotal)} сум</span>
                   </div>
                 </div>
               </div>
             ) : (
-              <div style={{ textAlign: 'center', padding: '8px 0 4px', fontSize: 13, color: muted }}>Нет активных продаж за месяц</div>
+              <div style={{ textAlign: 'center', padding: '8px 0 4px', fontSize: 13, color: muted }}>Нет продаж {periodLabel}</div>
             )}
             {data.total_customer_debt > 0 && (
               <div style={{ marginTop: 8, background: '#ff3b3010', border: '1px solid #ff3b3025', borderRadius: 10, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: 12, color: muted }}>⏳ В долгах у клиентов</span>
-                <span style={{ fontSize: 14, fontWeight: 800, color: '#ff3b30' }}>{fmtM(data.total_customer_debt)} {unitM}</span>
+                <span style={{ fontSize: 14, fontWeight: 800, color: '#ff3b30' }}>{fmt(data.total_customer_debt)} сум</span>
               </div>
             )}
             {(data.total_supplier_debt ?? 0) > 0 && (
               <div style={{ marginTop: 8, background: '#ff950015', border: '1px solid #ff950035', borderRadius: 10, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: 12, color: muted }}>🚚 Долг поставщикам</span>
-                <span style={{ fontSize: 14, fontWeight: 800, color: '#ff9500' }}>{fmtM(data.total_supplier_debt)} {unitM}</span>
+                <span style={{ fontSize: 14, fontWeight: 800, color: '#ff9500' }}>{fmt(data.total_supplier_debt)} сум</span>
+              </div>
+            )}
+            {(data.total_supplier_credit ?? 0) > 0 && (
+              <div style={{ marginTop: 8, background: '#34c75915', border: '1px solid #34c75930', borderRadius: 10, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 12, color: muted }}>💚 Поставщики должны нам</span>
+                <span style={{ fontSize: 14, fontWeight: 800, color: '#34c759' }}>{fmt(data.total_supplier_credit)} сум</span>
               </div>
             )}
             <div style={{ marginTop: 8, background: isDark ? '#1a2a1a' : '#f0faf4', border: '1px solid #34c75930', borderRadius: 10, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: 12, color: muted }}>💼 Итого в кассе (всё время)</span>
-              <span style={{ fontSize: 14, fontWeight: 800, color: '#34c759' }}>{fmtM(data.cash_alltime)} {unitM}</span>
+              <span style={{ fontSize: 14, fontWeight: 800, color: '#34c759' }}>{fmt(data.cash_alltime)} сум</span>
             </div>
           </div>
 
-          {/* ── Заморожено в товарах (показываем всегда) ── */}
+          {/* ── Заморожено в товарах ── */}
           {data.stock_value > 0 && (
             <div style={{ background: isDark ? '#1a1a2a' : '#f0f4ff', border: '1px solid #2481cc30', borderRadius: 16, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: 13, color: muted }}>📦 Заморожено в товарах</span>
-              <span style={{ fontSize: 15, fontWeight: 800, color: '#2481cc' }}>{fmtM(data.stock_value)} {unitM}</span>
+              <span style={{ fontSize: 15, fontWeight: 800, color: '#2481cc' }}>{fmt(data.stock_value)} сум</span>
             </div>
           )}
 
-          {/* ── По продавцам (месяц) ── */}
+          {/* ── По продавцам (за месяц) ── */}
           {data.seller_stats.length > 0 && (
             <div style={{ background: card, borderRadius: 16, padding: '14px 16px', border: `1px solid ${border}` }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 }}>👤 По продавцам за месяц</div>
@@ -488,13 +586,13 @@ export default function DashboardPage() {
                 <div key={i} style={{ paddingTop: i > 0 ? 10 : 0, borderTop: i > 0 ? `1px solid ${border}` : 'none', marginTop: i > 0 ? 10 : 0 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
                     <span style={{ fontSize: 13, fontWeight: 700, color: text }}>{s.name}</span>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: '#1a6b3c' }}>{fmtM(s.revenue)} {unitM}</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: '#1a6b3c' }}>{fmt(s.revenue)} сум</span>
                   </div>
                   <MiniBar value={s.revenue} max={data.seller_stats[0].revenue} color="#1a6b3c" />
                   <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
                     <span style={{ fontSize: 11, color: muted }}>{s.sales_count} прод.</span>
-                    <span style={{ fontSize: 11, color: '#2481cc' }}>получено {fmtM(s.paid)}</span>
-                    {s.debt > 0 && <span style={{ fontSize: 11, color: '#ff3b30' }}>долг {fmtM(s.debt)}</span>}
+                    <span style={{ fontSize: 11, color: '#2481cc' }}>получено {fmt(s.paid)}</span>
+                    {s.debt > 0 && <span style={{ fontSize: 11, color: '#ff3b30' }}>долг {fmt(s.debt)}</span>}
                   </div>
                 </div>
               ))}
@@ -513,20 +611,22 @@ export default function DashboardPage() {
                       <div style={{ fontSize: 10, color: '#2481cc', fontWeight: 600 }}>{[item.brand, item.category].filter(Boolean).join(' · ')}</div>
                     )}
                   </div>
-                  <span style={{ color: '#ff3b30', fontWeight: 600, flexShrink: 0, marginLeft: 8 }}>{unitDisplay(item.unit, item.unit_value, item.current_stock)} / {item.min_stock} {item.unit}</span>
+                  <span style={{ color: '#ff3b30', fontWeight: 600, flexShrink: 0, marginLeft: 8 }}>
+                    {unitDisplay(item.unit, item.unit_value, item.current_stock)} / {item.min_stock} {item.unit}
+                  </span>
                 </div>
               ))}
             </div>
           )}
 
-          {/* ── Расходы ── */}
-          {data.expenses_by_category.length > 0 && (
+          {/* ── Расходы по категориям (за период) ── */}
+          {periodExpenses.length > 0 && (
             <div style={{ background: card, borderRadius: 16, padding: '14px 16px', border: `1px solid ${border}` }}>
               <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-                <DonutChart size={80} segments={data.expenses_by_category.map((e, i) => ({ value: e.total, color: EXPENSE_COLORS[i % 8] }))} />
+                <DonutChart size={80} segments={periodExpenses.map((e, i) => ({ value: e.total, color: EXPENSE_COLORS[i % 8] }))} />
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>💸 Расходы за месяц</div>
-                  {data.expenses_by_category.map((e, i) => (
+                  <div style={{ fontSize: 12, fontWeight: 700, color: muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>💸 Расходы {periodLabel}</div>
+                  {periodExpenses.map((e, i) => (
                     <div key={e.category} style={{ marginBottom: 6 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
                         <span style={{ color: text }}>{e.category}</span>
@@ -540,53 +640,52 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* ── Топ товаров ── */}
-          {data.top_products.length > 0 && (
+          {/* ── Топ товаров за период ── */}
+          {periodTopProducts.length > 0 && (
             <div style={{ background: card, borderRadius: 16, padding: '14px 16px', border: `1px solid ${border}` }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 }}>🏆 Топ товаров за месяц</div>
-              {data.top_products.map((p, i) => (
+              <div style={{ fontSize: 12, fontWeight: 700, color: muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 }}>🏆 Топ товаров {periodLabel}</div>
+              {periodTopProducts.map((p, i) => (
                 <div key={p.name} style={{ display: 'flex', alignItems: 'center', gap: 10, paddingTop: i > 0 ? 10 : 0, borderTop: i > 0 ? `1px solid ${border}` : 'none', marginTop: i > 0 ? 10 : 0 }}>
-                  <div style={{ width: 26, height: 26, borderRadius: 8, flexShrink: 0, background: ['#ffd700','#c0c0c0','#cd7f32','#2481cc20','#2481cc20'][i], display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 800, color: i < 3 ? '#1a1a1a' : '#2481cc' }}>{i+1}</div>
+                  <div style={{ width: 26, height: 26, borderRadius: 8, flexShrink: 0, background: (['#ffd700','#c0c0c0','#cd7f32','#2481cc20','#2481cc20'] as string[])[i] ?? '#2481cc20', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 800, color: i < 3 ? '#1a1a1a' : '#2481cc' }}>{i+1}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
                     {(p.brand || p.category) && (
-                      <div style={{ fontSize: 10, color: '#2481cc', fontWeight: 600, marginTop: 1 }}>
-                        {[p.brand, p.category].filter(Boolean).join(' · ')}
-                      </div>
+                      <div style={{ fontSize: 10, color: '#2481cc', fontWeight: 600 }}>{[p.brand, p.category].filter(Boolean).join(' · ')}</div>
                     )}
                     <div style={{ fontSize: 11, color: muted }}>{unitDisplay(p.unit, p.unit_value, p.total_qty)}</div>
                   </div>
-                  <div
-                    style={{ fontSize: 13, fontWeight: 700, color: '#1a6b3c', flexShrink: 0, cursor: 'pointer' }}
-                    title={fmtFull(p.total_revenue)}
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#1a6b3c', flexShrink: 0, cursor: 'pointer' }}
                     onClick={() => alert(fmtFull(p.total_revenue))}
-                  >{fmtM(p.total_revenue)} {unitM}</div>
+                  >{fmt(p.total_revenue)} сум</div>
                 </div>
               ))}
             </div>
           )}
 
-          {/* ── Должники ── */}
+          {/* ── Должники (глобально) ── */}
           {data.top_debtors.length > 0 && (
             <div style={{ background: card, borderRadius: 16, padding: '14px 16px', border: `1px solid ${border}` }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 }}>⏳ Должники</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 }}>⏳ Топ должников</div>
               {data.top_debtors.map((c, i) => (
                 <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: i > 0 ? 10 : 0, borderTop: i > 0 ? `1px solid ${border}` : 'none', marginTop: i > 0 ? 10 : 0 }}>
-                  <div><div style={{ fontSize: 13, fontWeight: 600, color: text }}>{c.name}</div><div style={{ fontSize: 11, color: muted }}>{c.phone}</div></div>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: text }}>{c.name}</div>
+                    <div style={{ fontSize: 11, color: muted }}>{c.phone}</div>
+                  </div>
                   <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: 14, fontWeight: 800, color: '#ff3b30' }}>{fmtM(c.total_debt)} {unitM}</div>
-                    <div style={{ fontSize: 10, color: muted }}>покупки: {fmtM(c.total_purchases)}</div>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: '#ff3b30' }}>{fmt(c.total_debt)} сум</div>
+                    <div style={{ fontSize: 10, color: muted }}>покупки: {fmt(c.total_purchases)}</div>
                   </div>
                 </div>
               ))}
             </div>
           )}
 
-          {/* ── Возвраты ── */}
-          {data.recent_returns.length > 0 && (
+          {/* ── Последние возвраты за период ── */}
+          {periodRecentReturns.length > 0 && (
             <div style={{ background: card, borderRadius: 16, padding: '14px 16px', border: `1px solid ${border}` }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 }}>↩️ Последние возвраты</div>
-              {data.recent_returns.map((r, i) => (
+              <div style={{ fontSize: 12, fontWeight: 700, color: muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 }}>↩️ Возвраты {periodLabel}</div>
+              {periodRecentReturns.map((r, i) => (
                 <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: i > 0 ? 10 : 0, borderTop: i > 0 ? `1px solid ${border}` : 'none', marginTop: i > 0 ? 10 : 0 }}>
                   <div>
                     <div style={{ fontSize: 13, fontWeight: 600, color: text }}>{r.product_name}</div>
@@ -594,10 +693,9 @@ export default function DashboardPage() {
                       <div style={{ fontSize: 10, color: '#2481cc', fontWeight: 600 }}>{[r.product_brand, r.product_category].filter(Boolean).join(' · ')}</div>
                     )}
                     <div style={{ fontSize: 11, color: muted }}>👤 {r.customer_name}{r.reason ? ` · ${r.reason}` : ''}</div>
-                    <div style={{ fontSize: 11, color: muted }}>{new Date(r.created_at).toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })}</div>
                   </div>
                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#e08030' }}>−{fmtM(r.return_amount)}</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#e08030' }}>−{fmt(r.return_amount)}</div>
                     <div style={{ fontSize: 11, color: muted }}>{unitDisplay(r.unit, r.unit_value, r.quantity)}</div>
                   </div>
                 </div>
@@ -607,8 +705,19 @@ export default function DashboardPage() {
 
           {/* ── Экспорт ── */}
           <div style={{ background: card, borderRadius: 16, padding: '16px', border: `1px solid ${border}` }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>📥 Экспорт в Excel</div>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>📥 Экспорт</div>
+
+            {/* PDF отчёт */}
+            <button onClick={handlePdfReport} disabled={exportingPdf} style={{
+              width: '100%', background: exportingPdf ? '#555' : 'linear-gradient(135deg, #7a3b8c, #9d4eb5)',
+              border: 'none', borderRadius: 14, padding: 13, color: '#fff',
+              fontSize: 14, fontWeight: 700, cursor: 'pointer', marginBottom: 10,
+            }}>
+              {exportingPdf ? '⏳ Генерируем PDF...' : '📄 Скачать отчёт PDF (как в примере)'}
+            </button>
+
+            {/* Excel */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
               {([7, 30, 90] as const).map(d => (
                 <button key={d} onClick={() => setExportDays(d)} style={{ flex: 1, border: `1.5px solid ${exportDays === d ? '#2481cc' : border}`, borderRadius: 10, padding: '7px 4px', cursor: 'pointer', fontSize: 12, fontWeight: 600, background: exportDays === d ? '#2481cc20' : 'transparent', color: exportDays === d ? '#2481cc' : muted }}>
                   {d === 7 ? '7 дней' : d === 30 ? '30 дней' : '90 дней'}
@@ -620,24 +729,13 @@ export default function DashboardPage() {
               {exporting ? '⏳ Формируем...' : isMobileTg ? '📲 Отправить в Telegram' : '📥 Скачать Excel'}
             </button>
 
-            {/* Бэкап БД */}
-            <div style={{ marginTop: 10, borderTop: `1px solid ${border}`, paddingTop: 12 }}>
+            {/* Бэкап */}
+            <div style={{ marginTop: 12, borderTop: `1px solid ${border}`, paddingTop: 12 }}>
               <div style={{ fontSize: 12, color: muted, marginBottom: 8, fontWeight: 600 }}>💾 Резервная копия базы данных</div>
-              <div style={{ fontSize: 11, color: muted, marginBottom: 10 }}>
-                Полный бэкап — вся история продаж, расходы, журнал, клиенты, товары.
-              </div>
-              <button onClick={handleDbBackup} disabled={backingUp} style={{
-                width: '100%', background: isDark ? '#1a2a1a' : '#f0fff4',
-                border: `1.5px solid #34c75940`, borderRadius: 12, padding: 11,
-                color: '#34c759', fontSize: 13, fontWeight: 700, cursor: 'pointer', marginBottom: 8,
-              }}>
+              <button onClick={handleDbBackup} disabled={backingUp} style={{ width: '100%', background: isDark ? '#1a2a1a' : '#f0fff4', border: `1.5px solid #34c75940`, borderRadius: 12, padding: 11, color: '#34c759', fontSize: 13, fontWeight: 700, cursor: 'pointer', marginBottom: 8 }}>
                 {backingUp ? '⏳ Создаём бэкап...' : '💾 Скачать бэкап (.sql)'}
               </button>
-              <label style={{
-                display: 'block', background: isDark ? '#333' : '#f0f2f5',
-                border: `1.5px dashed ${border}`, borderRadius: 12, padding: '11px 0',
-                textAlign: 'center', fontSize: 13, fontWeight: 600, color: muted, cursor: 'pointer',
-              }}>
+              <label style={{ display: 'block', background: isDark ? '#333' : '#f0f2f5', border: `1.5px dashed ${border}`, borderRadius: 12, padding: '11px 0', textAlign: 'center', fontSize: 13, fontWeight: 600, color: muted, cursor: 'pointer' }}>
                 {restoring ? '⏳ Восстанавливаем...' : '♻️ Восстановить из .sql'}
                 <input type="file" accept=".sql" style={{ display: 'none' }} onChange={handleDbRestore} disabled={restoring} />
               </label>
