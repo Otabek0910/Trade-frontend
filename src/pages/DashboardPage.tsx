@@ -219,14 +219,14 @@ function HistoryBlock({ year, month, alltime, data, loading, isDark, card, text,
                     <div key={type} style={{ marginBottom: 7 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
                         <span style={{ color: text }}>{PAYMENT_LABELS[type] || type}</span>
-                        <span style={{ fontWeight: 700, color: PAYMENT_COLORS[type] || '#888' }}>{fmt(d.total)} {curLabel}</span>
+                        <span style={{ fontWeight: 700, color: PAYMENT_COLORS[type] || '#888' }}>{fmt(d.total)}</span>
                       </div>
                       <MiniBar value={d.total} max={cashTotal} color={PAYMENT_COLORS[type] || '#888'} />
                     </div>
                   ))}
                   <div style={{ borderTop: `1px solid ${border}`, paddingTop: 6, display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
                     <span style={{ color: muted }}>Итого получено</span>
-                    <span style={{ fontWeight: 800, color: text }}>{fmt(cashTotal)} {curLabel}</span>
+                    <span style={{ fontWeight: 800, color: text }}>{fmt(cashTotal)}</span>
                   </div>
                 </div>
               </div>
@@ -270,7 +270,7 @@ function HistoryBlock({ year, month, alltime, data, loading, isDark, card, text,
                   </div>
                   <div style={{ fontSize: 13, fontWeight: 700, color: '#1a6b3c', flexShrink: 0, cursor: 'pointer' }}
                     onClick={() => alert(fmtFull(p.total_revenue))}
-                  >{fmt(p.total_revenue)} {curLabel}</div>
+                  >{fmt(p.total_revenue)}</div>
                 </div>
               ))}
             </div>
