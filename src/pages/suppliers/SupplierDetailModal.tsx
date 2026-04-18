@@ -125,12 +125,9 @@ export default function SupplierDetailModal({ supplierId, token, isDark, onClose
 
   const headers = { Authorization: `Bearer ${token}` }
 
-// ─── Загрузка данных поставщика ───────────────────────────────────────────
+  // ─── Загрузка данных поставщика ───────────────────────────────────────────
   useEffect(() => {
-    const h = { headers: { Authorization: `Bearer ${token}` } }
-
-    // Основные данные поставщика
-    axios.get(`/suppliers/${supplierId}`, h)
+    axios.get(`/suppliers/${supplierId}`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => {
         setData(r.data)
         setEditName(r.data.name)
@@ -140,28 +137,7 @@ export default function SupplierDetailModal({ supplierId, token, isDark, onClose
         setLoading(false)
       })
       .catch(() => setLoading(false))
-
-    // Возвраты — грузим сразу, чтобы счётчик в шапке работал
-    axios.get(`/supplier-returns/supplier/${supplierId}`, h)
-      .then(r => setSupplierReturns(r.data))
-      .catch(() => {})
   }, [supplierId, token])
-
-  // ─── Обновление возвратов при переходе на таб (для свежих данных) ──────────
-  useEffect(() => {
-    if (tab !== 'returns') return
-    const load = async () => {
-      setReturnsLoading(true)
-      try {
-        const r = await axios.get(`/supplier-returns/supplier/${supplierId}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        })
-        setSupplierReturns(r.data)
-      } catch { /* silent */ }
-      setReturnsLoading(false)
-    }
-    void load()
-  }, [tab, supplierId, token])
 
   // ─── Загрузка возвратов при переходе на таб ───────────────────────────────
   useEffect(() => {
@@ -921,8 +897,39 @@ export default function SupplierDetailModal({ supplierId, token, isDark, onClose
                           )}
                         </div>
                         {r.reason && <div style={{ fontSize: 11, color: muted }}>Причина: {r.reason}</div>}
-                        <div style={{ fontSize: 11, color: muted, marginTop: 2 }}>
-                          {r.creator_name} · {new Date(r.created_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
+                          <div style={{ fontSize: 11, color: muted }}>
+                            {r.creator_name} · {new Date(r.created_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                          </div>
+                          <button
+                            onClick={async () => {
+                              if (!confirm(`Отменить возврат ${r.quantity} шт · ${fmt(r.return_amount)} сум?\n\nТовар вернётся на склад, баланс с поставщиком откатится.`)) return
+                              try {
+                                const res = await axios.delete(`/supplier-returns/${r.id}`, { headers })
+                                alert(res.data.message)
+                                setSupplierReturns(prev => prev.filter(x => x.id !== r.id))
+                                setData(d => d ? {
+                                  ...d,
+                                  total_debt:   res.data.new_total_debt,
+                                  total_credit: res.data.new_total_credit,
+                                  products: d.products.map(p =>
+                                    p.name === r.product_name
+                                      ? { ...p, current_stock: res.data.new_stock }
+                                      : p
+                                  ),
+                                } : d)
+                                if (data) onUpdate({ ...data, total_debt: res.data.new_total_debt, total_credit: res.data.new_total_credit })
+                              } catch (e: unknown) {
+                                const err = e as { response?: { data?: { detail?: string } } }
+                                alert(err?.response?.data?.detail || 'Ошибка отмены')
+                              }
+                            }}
+                            style={{
+                              background: '#ff3b3015', border: '1px solid #ff3b3030',
+                              borderRadius: 8, padding: '4px 10px',
+                              fontSize: 11, fontWeight: 700, color: '#ff3b30', cursor: 'pointer',
+                            }}
+                          >↩ Отменить</button>
                         </div>
                       </div>
                     ))}
