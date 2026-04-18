@@ -16,9 +16,11 @@ export interface Supplier {
   lng: number | null
   products_count: number
   total_receipts: number
-  total_purchased: number
+  total_purchased: number  // нетто (брутто − возвраты)
+  total_returned: number   // сумма возвратов поставщику
+  total_paid: number       // реально заплачено поставщику
   total_debt: number
-  total_credit: number   // поставщик должен нам (из возвратов)
+  total_credit: number
   created_at: string
 }
 
@@ -52,6 +54,7 @@ export default function SuppliersPage() {
     : n >= 1_000 ? `${(n / 1_000).toFixed(0)}К` : String(Math.round(n))
 
   const totalPurchased = suppliers.reduce((s, p) => s + p.total_purchased, 0)
+  const totalPaid      = suppliers.reduce((s, p) => s + (p.total_paid || 0), 0)
   const totalDebt      = suppliers.reduce((s, p) => s + p.total_debt, 0)
   const totalCredit    = suppliers.reduce((s, p) => s + (p.total_credit || 0), 0)
 
@@ -70,18 +73,32 @@ export default function SuppliersPage() {
         </div>
       </div>
 
-      {/* Stats */}
-      <div style={{ display: 'flex', gap: 8, padding: '10px 16px' }}>
-        {[
-          { label: 'Закуплено',  value: `${fmt(totalPurchased)} сум`, color: '#7a3b8c' },
-          { label: 'Наш долг',   value: `${fmt(totalDebt)} сум`,      color: totalDebt > 0 ? '#ff3b30' : '#34c759' },
-          { label: 'Нам должны', value: `${fmt(totalCredit)} сум`,    color: totalCredit > 0 ? '#34c759' : muted },
-        ].map(s => (
-          <div key={s.label} style={{ flex: 1, background: card, borderRadius: 12, padding: '10px 8px', textAlign: 'center', border: `1px solid ${border}` }}>
-            <div style={{ fontSize: 13, fontWeight: 800, color: s.color }}>{s.value}</div>
-            <div style={{ fontSize: 11, color: muted }}>{s.label}</div>
-          </div>
-        ))}
+      {/* Stats — 2 ряда */}
+      <div style={{ padding: '10px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {[
+            { label: 'Закуплено (нетто)', value: `${fmt(totalPurchased)} сум`, color: '#7a3b8c',
+              hint: 'брутто − возвраты' },
+            { label: 'Оплачено',          value: `${fmt(totalPaid)} сум`,      color: '#2481cc',
+              hint: 'реально отдали' },
+          ].map(s => (
+            <div key={s.label} style={{ flex: 1, background: card, borderRadius: 12, padding: '8px 10px', border: `1px solid ${border}` }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: s.color }}>{s.value}</div>
+              <div style={{ fontSize: 10, color: muted }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {[
+            { label: 'Наш долг',   value: `${fmt(totalDebt)} сум`,   color: totalDebt > 0 ? '#ff3b30' : '#34c759' },
+            { label: 'Нам должны', value: `${fmt(totalCredit)} сум`, color: totalCredit > 0 ? '#34c759' : muted },
+          ].map(s => (
+            <div key={s.label} style={{ flex: 1, background: card, borderRadius: 12, padding: '8px 10px', border: `1px solid ${border}` }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: s.color }}>{s.value}</div>
+              <div style={{ fontSize: 11, color: muted }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* List */}
@@ -134,6 +151,10 @@ export default function SuppliersPage() {
               <div style={{ fontSize: 12, color: muted, marginTop: 2 }}>
                 {s.phone || 'Телефон не указан'} · {s.products_count} товаров
               </div>
+              {/* Оплачено / закуплено */}
+              <div style={{ fontSize: 11, color: muted, marginTop: 1 }}>
+                оплачено {fmt(s.total_paid || 0)} · {s.total_receipts} приёмок
+              </div>
             </div>
 
             {/* Финансы */}
@@ -141,7 +162,11 @@ export default function SuppliersPage() {
               <div style={{ fontSize: 13, fontWeight: 700, color: '#7a3b8c' }}>
                 {fmt(s.total_purchased)} сум
               </div>
-              <div style={{ fontSize: 10, color: muted }}>{s.total_receipts} приёмок</div>
+              {(s.total_returned || 0) > 0 && (
+                <div style={{ fontSize: 10, color: '#e08030' }}>
+                  ↩ {fmt(s.total_returned)}
+                </div>
+              )}
               {s.total_debt > 0 && (
                 <div style={{
                   fontSize: 11, fontWeight: 700,
