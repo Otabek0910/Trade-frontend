@@ -8,7 +8,10 @@ interface Product {
   id: number
   name: string
   sku: string
+  brand: string | null
+  category: string | null
   current_stock: number
+  min_stock: number
   purchase_price: number
   selling_price: number
   unit: string
@@ -17,6 +20,9 @@ interface Product {
 interface Receipt {
   id: number
   product_name: string
+  product_sku: string
+  product_brand: string | null
+  product_category: string | null
   quantity: number
   purchase_price: number
   total: number
@@ -36,8 +42,12 @@ interface DebtPayment {
 interface SupplierReturnRecord {
   id: number
   product_name: string
+  product_sku: string
+  product_brand: string | null
+  product_category: string | null
   unit: string
   unit_value: number | null
+  current_stock: number
   quantity: number
   purchase_price: number
   return_amount: number
@@ -122,6 +132,7 @@ export default function SupplierDetailModal({ supplierId, token, isDark, onClose
   const [retLoading, setRetLoading] = useState(false)
   const [retError, setRetError] = useState('')
   const [retSuccess, setRetSuccess] = useState('')
+  const [revertingId, setRevertingId] = useState<number | null>(null) // ID возврата который сейчас отменяется
 
   const headers = { Authorization: `Bearer ${token}` }
 
@@ -601,15 +612,55 @@ export default function SupplierDetailModal({ supplierId, token, isDark, onClose
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     {data.products.length === 0
                       ? <div style={{ textAlign: 'center', padding: 32, color: muted }}>Товаров нет</div>
-                      : data.products.map(p => (
-                        <div key={p.id} style={{ background: card, borderRadius: 14, padding: '12px 14px', border: `1px solid ${border}` }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                            <div style={{ fontSize: 14, fontWeight: 700, color: text }}>{p.name}</div>
-                            <div style={{ fontSize: 12, color: p.current_stock <= 5 ? '#ff3b30' : muted, fontWeight: 600 }}>{unitDisplay(p.unit, p.unit_value, p.current_stock)}</div>
-                          </div>
-                          <div style={{ fontSize: 12, color: muted }}>SKU: {p.sku} · Закупка: {fmt(p.purchase_price)} · Продажа: {fmt(p.selling_price)}</div>
-                        </div>
-                      ))}
+                      : data.products.map(p => {
+                          const isLow = p.current_stock <= p.min_stock
+                          const margin = p.purchase_price > 0
+                            ? Math.round((p.selling_price - p.purchase_price) / p.purchase_price * 100)
+                            : 0
+                          return (
+                            <div key={p.id} style={{
+                              background: isLow ? (isDark ? '#2a1a1a' : '#fff8f8') : card,
+                              borderRadius: 14, padding: '12px 14px',
+                              border: `1.5px solid ${isLow ? '#ff3b3040' : border}`,
+                            }}>
+                              {/* Строка 1: название + остаток */}
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+                                <div style={{ fontSize: 14, fontWeight: 700, color: text, flex: 1, marginRight: 8 }}>{p.name}</div>
+                                <div style={{
+                                  fontSize: 12, fontWeight: 700, flexShrink: 0,
+                                  color: isLow ? '#ff3b30' : '#1a6b3c',
+                                  background: isLow ? '#ff3b3015' : '#34c75915',
+                                  border: `1px solid ${isLow ? '#ff3b3030' : '#34c75930'}`,
+                                  borderRadius: 8, padding: '2px 8px',
+                                }}>
+                                  {isLow ? '⚠️ ' : '✅ '}{unitDisplay(p.unit, p.unit_value, p.current_stock)}
+                                </div>
+                              </div>
+                              {/* Строка 2: бренд + категория */}
+                              {(p.brand || p.category) && (
+                                <div style={{ display: 'flex', gap: 4, marginBottom: 5, flexWrap: 'wrap' }}>
+                                  {p.brand && <span style={{ fontSize: 10, fontWeight: 700, color: '#7a3b8c', background: '#7a3b8c15', borderRadius: 6, padding: '1px 6px' }}>{p.brand}</span>}
+                                  {p.category && <span style={{ fontSize: 10, fontWeight: 600, color: '#2481cc', background: '#2481cc15', borderRadius: 6, padding: '1px 6px' }}>{p.category}</span>}
+                                </div>
+                              )}
+                              {/* Строка 3: SKU | цены | маржа */}
+                              <div style={{ display: 'flex', gap: 10, fontSize: 11, color: muted, flexWrap: 'wrap' }}>
+                                <span style={{ fontFamily: 'monospace', color: isDark ? '#aaa' : '#555' }}>#{p.sku}</span>
+                                <span>📥 {fmt(p.purchase_price)} сум</span>
+                                <span>🏷 {fmt(p.selling_price)} сум</span>
+                                <span style={{ color: margin >= 20 ? '#1a6b3c' : margin >= 10 ? '#e08030' : '#ff3b30', fontWeight: 700 }}>
+                                  +{margin}%
+                                </span>
+                              </div>
+                              {/* Строка 4: мин остаток */}
+                              {isLow && (
+                                <div style={{ marginTop: 5, fontSize: 11, color: '#ff3b30', fontWeight: 600 }}>
+                                  Мин. остаток: {p.min_stock} {p.unit} — нужно пополнить
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
                   </div>
                 )}
 
@@ -620,16 +671,30 @@ export default function SupplierDetailModal({ supplierId, token, isDark, onClose
                       ? <div style={{ textAlign: 'center', padding: 32, color: muted }}>Приёмок нет</div>
                       : data.recent_receipts.map(r => (
                         <div key={r.id} style={{ background: card, borderRadius: 14, padding: '12px 14px', border: `1px solid ${border}` }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                            <div style={{ fontSize: 14, fontWeight: 700, color: text }}>{r.product_name}</div>
-                            <div style={{ fontSize: 13, fontWeight: 700, color: '#1a6b3c' }}>{fmt(r.total)} сум</div>
+                          {/* Строка 1: название + итог */}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 3 }}>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: text, flex: 1, marginRight: 8 }}>{r.product_name}</div>
+                            <div style={{ fontSize: 13, fontWeight: 800, color: '#1a6b3c', flexShrink: 0 }}>{fmt(r.total)} сум</div>
                           </div>
-                          <div style={{ fontSize: 12, color: muted }}>
-                            {unitDisplay(r.unit, r.unit_value, r.quantity)} × {fmt(r.purchase_price)} сум · {r.created_at ? new Date(r.created_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}
+                          {/* Строка 2: бренд + категория */}
+                          {(r.product_brand || r.product_category) && (
+                            <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+                              {r.product_brand    && <span style={{ fontSize: 10, fontWeight: 700, color: '#7a3b8c', background: '#7a3b8c15', borderRadius: 6, padding: '1px 6px' }}>{r.product_brand}</span>}
+                              {r.product_category && <span style={{ fontSize: 10, fontWeight: 600, color: '#2481cc', background: '#2481cc15', borderRadius: 6, padding: '1px 6px' }}>{r.product_category}</span>}
+                            </div>
+                          )}
+                          {/* Строка 3: SKU | qty × price | дата */}
+                          <div style={{ display: 'flex', gap: 8, fontSize: 11, color: muted, flexWrap: 'wrap', marginBottom: r.debt > 0 ? 5 : 0 }}>
+                            <span style={{ fontFamily: 'monospace', color: isDark ? '#aaa' : '#555' }}>#{r.product_sku}</span>
+                            <span>{unitDisplay(r.unit, r.unit_value, r.quantity)} × {fmt(r.purchase_price)} сум</span>
+                            <span>·</span>
+                            <span>{r.created_at ? new Date(r.created_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}</span>
                           </div>
+                          {/* Строка 4: долг если есть */}
                           {r.debt > 0 && (
-                            <div style={{ marginTop: 6, fontSize: 12, color: '#ff3b30', fontWeight: 600 }}>
-                              ⚠️ Долг: {fmt(r.debt)} сум · Оплачено: {fmt(r.paid_amount)}
+                            <div style={{ display: 'flex', gap: 8, fontSize: 11 }}>
+                              <span style={{ color: '#ff3b30', fontWeight: 700 }}>⚠️ Долг: {fmt(r.debt)} сум</span>
+                              <span style={{ color: '#1a6b3c', fontWeight: 600 }}>✅ Оплачено: {fmt(r.paid_amount)} сум</span>
                             </div>
                           )}
                         </div>
@@ -762,14 +827,32 @@ export default function SupplierDetailModal({ supplierId, token, isDark, onClose
                               <option value="">— Выберите товар —</option>
                               {data.products.map(p => (
                                 <option key={p.id} value={p.id} disabled={p.current_stock === 0}>
-                                  {p.name} (на складе: {p.current_stock} шт)
+                                  {p.current_stock === 0 ? '❌ ' : ''}{p.name}{p.brand ? ` · ${p.brand}` : ''} — {p.current_stock} {p.unit} (#{p.sku})
                                 </option>
                               ))}
                             </select>
                           </div>
 
+                          {/* Карточка выбранного товара + поля */}
                           {selectedRetProduct && (
                             <>
+                              {/* Инфо-карточка товара */}
+                              <div style={{
+                                background: isDark ? '#1a1a2a' : '#f0f4ff',
+                                border: `1px solid #2481cc30`, borderRadius: 12, padding: '10px 14px',
+                              }}>
+                                <div style={{ fontSize: 13, fontWeight: 700, color: text, marginBottom: 3 }}>{selectedRetProduct.name}</div>
+                                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 5 }}>
+                                  {selectedRetProduct.brand    && <span style={{ fontSize: 10, fontWeight: 700, color: '#7a3b8c', background: '#7a3b8c15', borderRadius: 6, padding: '1px 6px' }}>{selectedRetProduct.brand}</span>}
+                                  {selectedRetProduct.category && <span style={{ fontSize: 10, fontWeight: 600, color: '#2481cc', background: '#2481cc15', borderRadius: 6, padding: '1px 6px' }}>{selectedRetProduct.category}</span>}
+                                  <span style={{ fontSize: 10, fontFamily: 'monospace', color: muted, padding: '1px 0' }}>#{selectedRetProduct.sku}</span>
+                                </div>
+                                <div style={{ display: 'flex', gap: 12, fontSize: 11, color: muted }}>
+                                  <span>📦 На складе: <strong style={{ color: selectedRetProduct.current_stock <= selectedRetProduct.min_stock ? '#ff3b30' : '#1a6b3c' }}>{unitDisplay(selectedRetProduct.unit, selectedRetProduct.unit_value, selectedRetProduct.current_stock)}</strong></span>
+                                  <span>📥 Закупка: <strong style={{ color: text }}>{fmt(selectedRetProduct.purchase_price)} сум</strong></span>
+                                </div>
+                              </div>
+
                               {/* Количество */}
                               <div>
                                 <div style={{ fontSize: 12, color: muted, fontWeight: 600, marginBottom: 6 }}>
@@ -874,17 +957,30 @@ export default function SupplierDetailModal({ supplierId, token, isDark, onClose
                         background: card, borderRadius: 14, padding: '12px 14px',
                         border: `1px solid ${border}`,
                       }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                          <div style={{ fontSize: 14, fontWeight: 700, color: text }}>{r.product_name}</div>
-                          <div style={{ fontSize: 14, fontWeight: 800, color: '#e08030' }}>
+                        {/* Строка 1: название + сумма */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 3 }}>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: text, flex: 1, marginRight: 8 }}>{r.product_name}</div>
+                          <div style={{ fontSize: 14, fontWeight: 800, color: '#e08030', flexShrink: 0 }}>
                             {fmt(r.return_amount)} сум
                           </div>
                         </div>
-                        <div style={{ fontSize: 12, color: muted, marginBottom: 4 }}>
-                          {unitDisplay(r.unit, r.unit_value, r.quantity)} · {fmt(r.purchase_price)} сум/шт
+                        {/* Строка 2: бренд + категория */}
+                        {(r.product_brand || r.product_category) && (
+                          <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+                            {r.product_brand    && <span style={{ fontSize: 10, fontWeight: 700, color: '#7a3b8c', background: '#7a3b8c15', borderRadius: 6, padding: '1px 6px' }}>{r.product_brand}</span>}
+                            {r.product_category && <span style={{ fontSize: 10, fontWeight: 600, color: '#2481cc', background: '#2481cc15', borderRadius: 6, padding: '1px 6px' }}>{r.product_category}</span>}
+                          </div>
+                        )}
+                        {/* Строка 3: SKU | qty × цена | остаток сейчас */}
+                        <div style={{ display: 'flex', gap: 8, fontSize: 11, color: muted, flexWrap: 'wrap', marginBottom: 5 }}>
+                          {r.product_sku && <span style={{ fontFamily: 'monospace', color: isDark ? '#aaa' : '#555' }}>#{r.product_sku}</span>}
+                          <span>{unitDisplay(r.unit, r.unit_value, r.quantity)} × {fmt(r.purchase_price)} сум</span>
+                          {r.current_stock !== undefined && (
+                            <span style={{ color: muted }}>· склад сейчас: <strong style={{ color: text }}>{r.current_stock} {r.unit}</strong></span>
+                          )}
                         </div>
                         {/* Эффект на баланс */}
-                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 4 }}>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: r.reason ? 4 : 0 }}>
                           {r.debt_reduced > 0 && (
                             <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 6, background: '#2481cc15', color: '#2481cc' }}>
                               Долг −{fmt(r.debt_reduced)} сум
@@ -896,40 +992,43 @@ export default function SupplierDetailModal({ supplierId, token, isDark, onClose
                             </span>
                           )}
                         </div>
-                        {r.reason && <div style={{ fontSize: 11, color: muted }}>Причина: {r.reason}</div>}
+                        {r.reason && <div style={{ fontSize: 11, color: muted, marginBottom: 2 }}>📝 {r.reason}</div>}
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
                           <div style={{ fontSize: 11, color: muted }}>
                             {r.creator_name} · {new Date(r.created_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
                           </div>
                           <button
+                            disabled={revertingId === r.id}
                             onClick={async () => {
                               if (!confirm(`Отменить возврат ${r.quantity} шт · ${fmt(r.return_amount)} сум?\n\nТовар вернётся на склад, баланс с поставщиком откатится.`)) return
+                              setRevertingId(r.id)
                               try {
                                 const res = await axios.delete(`/supplier-returns/${r.id}`, { headers })
-                                alert(res.data.message)
+
+                                // Полный рефетч поставщика — чтобы обновилась история оплат, долг, кредит
+                                const fresh = await axios.get(`/suppliers/${supplierId}`, { headers })
+                                setData(fresh.data)
+                                onUpdate(fresh.data)
+
+                                // Убираем отменённый возврат из списка
                                 setSupplierReturns(prev => prev.filter(x => x.id !== r.id))
-                                setData(d => d ? {
-                                  ...d,
-                                  total_debt:   res.data.new_total_debt,
-                                  total_credit: res.data.new_total_credit,
-                                  products: d.products.map(p =>
-                                    p.name === r.product_name
-                                      ? { ...p, current_stock: res.data.new_stock }
-                                      : p
-                                  ),
-                                } : d)
-                                if (data) onUpdate({ ...data, total_debt: res.data.new_total_debt, total_credit: res.data.new_total_credit })
+
+                                alert(res.data.message)
                               } catch (e: unknown) {
                                 const err = e as { response?: { data?: { detail?: string } } }
                                 alert(err?.response?.data?.detail || 'Ошибка отмены')
                               }
+                              setRevertingId(null)
                             }}
                             style={{
-                              background: '#ff3b3015', border: '1px solid #ff3b3030',
+                              background: revertingId === r.id ? '#ccc' : '#ff3b3015',
+                              border: '1px solid #ff3b3030',
                               borderRadius: 8, padding: '4px 10px',
-                              fontSize: 11, fontWeight: 700, color: '#ff3b30', cursor: 'pointer',
+                              fontSize: 11, fontWeight: 700,
+                              color: revertingId === r.id ? '#999' : '#ff3b30',
+                              cursor: revertingId === r.id ? 'not-allowed' : 'pointer',
                             }}
-                          >↩ Отменить</button>
+                          >{revertingId === r.id ? '⏳...' : '↩ Отменить'}</button>
                         </div>
                       </div>
                     ))}
