@@ -476,9 +476,9 @@ export default function SupplierDetailModal({ supplierId, token, isDark, onClose
                 {/* Статистика */}
                 <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
                   {[
-                    { label: 'Товаров',   value: data.products_count,  color: '#2481cc' },
-                    { label: 'Приёмок',   value: data.total_receipts,  color: '#1a6b3c' },
-                    { label: 'Возвратов', value: supplierReturns.length || '—', color: '#e08030' },
+                    { label: 'Товаров',   value: data.products_count,           color: '#2481cc' },
+                    { label: 'Приёмок',   value: data.total_receipts,           color: '#1a6b3c' },
+                    { label: 'Возвратов', value: supplierReturns.length > 0 ? supplierReturns.length : 0, color: '#e08030' },
                   ].map(s => (
                     <div key={s.label} style={{ flex: 1, background: isDark ? '#333' : '#f8f9fa', borderRadius: 12, padding: '8px 6px', textAlign: 'center' }}>
                       <div style={{ fontSize: 15, fontWeight: 800, color: s.color }}>{s.value}</div>
@@ -490,14 +490,14 @@ export default function SupplierDetailModal({ supplierId, token, isDark, onClose
                 {/* Табы */}
                 <div style={{ display: 'flex', gap: 3, background: isDark ? '#333' : '#f0f2f5', borderRadius: 10, padding: 3, marginTop: 12 }}>
                   {([
-                    ['info',     '📋 Инфо'],
-                    ['products', '📦'],
-                    ['receipts', '📥'],
-                    ['debt',     '💳 Долг'],
-                    ['returns',  '↩️ Возврат'],
+                    ['info',     'Инфо'],
+                    ['products', 'Склад'],
+                    ['receipts', 'Приёмки'],
+                    ['debt',     'Долг'],
+                    ['returns',  'Возврат'],
                   ] as const).map(([t, label]) => (
                     <button key={t} onClick={() => setTab(t)} style={{
-                      flex: 1, border: 'none', borderRadius: 8, padding: '7px 2px', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                      flex: 1, border: 'none', borderRadius: 8, padding: '7px 2px', fontSize: 10, fontWeight: 600, cursor: 'pointer',
                       background: tab === t ? card : 'transparent',
                       color: tab === t
                         ? (t === 'debt' && data.total_debt > 0 ? '#ff3b30'
@@ -655,7 +655,7 @@ export default function SupplierDetailModal({ supplierId, token, isDark, onClose
                               {/* Строка 4: мин остаток */}
                               {isLow && (
                                 <div style={{ marginTop: 5, fontSize: 11, color: '#ff3b30', fontWeight: 600 }}>
-                                  Мин. остаток: {p.min_stock} {p.unit} — нужно пополнить
+                                  Мин. остаток: {p.min_stock} шт — нужно пополнить
                                 </div>
                               )}
                             </div>
@@ -690,11 +690,11 @@ export default function SupplierDetailModal({ supplierId, token, isDark, onClose
                             <span>·</span>
                             <span>{r.created_at ? new Date(r.created_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}</span>
                           </div>
-                          {/* Строка 4: долг если есть */}
+                          {/* Строка 4: долг если есть — историческая метка */}
                           {r.debt > 0 && (
-                            <div style={{ display: 'flex', gap: 8, fontSize: 11 }}>
-                              <span style={{ color: '#ff3b30', fontWeight: 700 }}>⚠️ Долг: {fmt(r.debt)} сум</span>
-                              <span style={{ color: '#1a6b3c', fontWeight: 600 }}>✅ Оплачено: {fmt(r.paid_amount)} сум</span>
+                            <div style={{ display: 'flex', gap: 8, fontSize: 11, flexWrap: 'wrap' }}>
+                              <span style={{ color: '#e08030', fontWeight: 600 }}>📋 На момент приёмки: долг {fmt(r.debt)} сум</span>
+                              <span style={{ color: '#1a6b3c', fontWeight: 600 }}>· оплачено {fmt(r.paid_amount)} сум</span>
                             </div>
                           )}
                         </div>
@@ -976,7 +976,7 @@ export default function SupplierDetailModal({ supplierId, token, isDark, onClose
                           {r.product_sku && <span style={{ fontFamily: 'monospace', color: isDark ? '#aaa' : '#555' }}>#{r.product_sku}</span>}
                           <span>{unitDisplay(r.unit, r.unit_value, r.quantity)} × {fmt(r.purchase_price)} сум</span>
                           {r.current_stock !== undefined && (
-                            <span style={{ color: muted }}>· склад сейчас: <strong style={{ color: text }}>{r.current_stock} {r.unit}</strong></span>
+                            <span style={{ color: muted }}>· склад сейчас: <strong style={{ color: text }}>{unitDisplay(r.unit, r.unit_value, r.current_stock)}</strong></span>
                           )}
                         </div>
                         {/* Эффект на баланс */}

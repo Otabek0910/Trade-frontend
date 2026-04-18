@@ -35,7 +35,6 @@ interface DashboardData {
   cash_alltime: number
   total_customer_debt: number
   total_supplier_debt: number
-  total_supplier_credit: number
   stock_value: number
 }
 interface HistoryStats extends PeriodStats {
@@ -292,6 +291,11 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [period, setPeriod] = useState<Period>('today')
 
+  // Валюта отображения
+  const [showUsd, setShowUsd]   = useState(false)
+  const [cbuRate, setCbuRate]   = useState(0)
+  const [backupSuccess, setBackupSuccess] = useState('')
+
   // История
   const [histYear, setHistYear]   = useState(new Date().getFullYear())
   const [histMonth, setHistMonth] = useState<number | null>(null)
@@ -300,25 +304,30 @@ export default function DashboardPage() {
   const [histLoading, setHistLoading] = useState(false)
 
   // Экспорт
-  const [exportDays, setExportDays]     = useState(30)
-  const [exporting, setExporting]       = useState(false)
+  const [exportDays, setExportDays]       = useState(30)
+  const [exportAlltime, setExportAlltime] = useState(false)
+  const [exporting, setExporting]         = useState(false)
   const [exportSuccess, setExportSuccess] = useState('')
-  const [exportingPdf, setExportingPdf] = useState(false)
-  const [importResult, setImportResult] = useState('')
-  const [resetting, setResetting]       = useState(false)
-  const [confirmReset, setConfirmReset] = useState(false)
-  const [backingUp, setBackingUp]       = useState(false)
-  const [restoring, setRestoring]       = useState(false)
+  const [exportingPdf, setExportingPdf]   = useState(false)
+  const [importResult, setImportResult]   = useState('')
+  const [resetting, setResetting]         = useState(false)
+  const [confirmReset, setConfirmReset]   = useState(false)
+  const [backingUp, setBackingUp]         = useState(false)
+  const [restoring, setRestoring]         = useState(false)
 
   const isMobileTg = !!(tg && (tg as unknown as { platform?: string }).platform &&
     !['macos', 'tdesktop', 'web'].includes((tg as unknown as { platform?: string }).platform ?? ''))
 
-  // ── Загрузка главного дашборда ──────────────────────────────────────────────
+  // ── Загрузка главного дашборда + курс ЦБУ ────────────────────────────────────
   useEffect(() => {
     let cancelled = false
     api.get('/dashboard')
       .then(r => { if (!cancelled) { setData(r.data); setLoading(false) } })
       .catch(() => { if (!cancelled) setLoading(false) })
+    // Курс ЦБУ для переключателя USD
+    api.get('/rates/today')
+      .then(r => { if (!cancelled) setCbuRate(r.data.cbu_rate) })
+      .catch(() => {})
     return () => { cancelled = true }
   }, [])
 
@@ -385,16 +394,18 @@ export default function DashboardPage() {
 
   const handleExport = async () => {
     setExporting(true); setExportSuccess('')
+    const params = exportAlltime ? '?alltime=true' : `?days=${exportDays}`
     try {
       if (isMobileTg) {
-        await api.get(`/export/send?days=${exportDays}`)
-        setExportSuccess('✅ Файл отправлен в Telegram!')
+        await api.get(`/export/send${params}`)
+        setExportSuccess('✅ Отчёт отправлен в Telegram!')
         setTimeout(() => setExportSuccess(''), 4000)
       } else {
-        const res = await api.get(`/export?days=${exportDays}`, { responseType: 'blob' })
+        const res = await api.get(`/export${params}`, { responseType: 'blob' })
         const url = window.URL.createObjectURL(new Blob([res.data]))
         const a = document.createElement('a'); a.href = url
-        a.download = `trade_report_${new Date().toISOString().slice(0,10)}.xlsx`; a.click()
+        a.download = `tradi_report_${new Date().toISOString().slice(0,10)}${exportAlltime ? '_alltime' : ''}.xlsx`
+        a.click()
         window.URL.revokeObjectURL(url)
       }
     } catch { /* silent */ }
@@ -419,6 +430,17 @@ export default function DashboardPage() {
   const muted  = isDark ? '#666'    : '#999'
   const border = isDark ? '#333'    : '#e8eaed'
 
+  // Конвертация: если showUsd и есть курс — делим на курс ЦБУ
+  const fmtCur = (n: number) => {
+    if (showUsd && cbuRate > 0) {
+      const usd = n / cbuRate
+      if (Math.abs(usd) >= 1000) return `$${(usd/1000).toFixed(0)}К`
+      return `$${usd.toFixed(0)}`
+    }
+    return fmt(n)
+  }
+  const curLabel = showUsd && cbuRate > 0 ? '$' : 'сум'
+
   // Текущий период — теперь включает top_products, cash_by_type, expenses_by_category, recent_returns
   const stats = period !== 'history' ? data?.[period as 'today' | 'week' | 'month'] : null
 
@@ -437,16 +459,39 @@ export default function DashboardPage() {
 
       {/* ── Хедер + табы ── */}
       <div style={{ background: card, padding: '14px 16px 10px', boxShadow: `0 1px 0 ${border}` }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
           <button onClick={() => navigate('/')} style={{ background: isDark ? '#333' : '#f0f2f5', border: 'none', borderRadius: 10, width: 34, height: 34, fontSize: 16, cursor: 'pointer', flexShrink: 0 }}>←</button>
           <div style={{ flex: 1, fontSize: 18, fontWeight: 800, color: text }}>📊 Дашборд</div>
+          {/* Переключатель валюты */}
+          {cbuRate > 0 && (
+            <button
+              onClick={() => setShowUsd(v => !v)}
+              style={{
+                background: showUsd ? '#e0803020' : (isDark ? '#333' : '#f0f2f5'),
+                border: `1.5px solid ${showUsd ? '#e08030' : border}`,
+                borderRadius: 10, padding: '5px 10px',
+                fontSize: 12, fontWeight: 700,
+                color: showUsd ? '#e08030' : muted,
+                cursor: 'pointer', flexShrink: 0,
+              }}
+            >
+              {showUsd ? '🇺🇸 $' : '🇺🇿 СУМ'}
+            </button>
+          )}
           {(data?.low_stock_count ?? 0) > 0 && (
             <div style={{ background: '#ff3b30', borderRadius: 10, padding: '3px 8px', fontSize: 12, color: '#fff', fontWeight: 700 }}>⚠️ {data!.low_stock_count}</div>
           )}
         </div>
+        {/* Курс если USD режим */}
+        {showUsd && cbuRate > 0 && (
+          <div style={{ fontSize: 11, color: '#e08030', fontWeight: 600, marginBottom: 6, paddingLeft: 2 }}>
+            💱 Курс ЦБУ: {cbuRate.toLocaleString('ru-RU')} сум/$  · все суммы в долларах
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 4, background: isDark ? '#333' : '#f0f2f5', borderRadius: 10, padding: 3 }}>
           {(['today', 'week', 'month', 'history'] as Period[]).map(p => (
             <button key={p} onClick={() => setPeriod(p)} style={{
+
               flex: 1, border: 'none', borderRadius: 8, padding: '7px 0', fontSize: 12, fontWeight: 600, cursor: 'pointer',
               background: period === p ? card : 'transparent',
               color: period === p ? text : muted,
@@ -482,9 +527,9 @@ export default function DashboardPage() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             {[
               { label: 'Продажи', value: String(stats.sales_count), unit: 'шт', color: '#2481cc', icon: '🧾', rawValue: undefined as number | undefined },
-              { label: 'Выручка',  value: fmt(stats.revenue),   unit: 'сум', color: '#1a6b3c', icon: '💰', rawValue: stats.revenue },
-              { label: 'Маржа',    value: fmt(stats.margin),    unit: `сум · ${stats.margin_percent}%`, color: '#34c759', icon: '📈', rawValue: stats.margin },
-              { label: 'Новый долг', value: fmt(stats.debt_new), unit: 'сум', color: stats.debt_new > 0 ? '#ff3b30' : '#34c759', icon: '⏳', rawValue: stats.debt_new },
+              { label: 'Выручка',    value: fmtCur(stats.revenue),   unit: curLabel, color: '#1a6b3c', icon: '💰', rawValue: stats.revenue },
+              { label: 'Маржа',      value: fmtCur(stats.margin),    unit: `${curLabel} · ${stats.margin_percent}%`, color: '#34c759', icon: '📈', rawValue: stats.margin },
+              { label: 'Новый долг', value: fmtCur(stats.debt_new),  unit: curLabel, color: stats.debt_new > 0 ? '#ff3b30' : '#34c759', icon: '⏳', rawValue: stats.debt_new },
             ].map(s => (
               <div key={s.label} style={{ background: card, borderRadius: 16, padding: '14px 16px', border: `1px solid ${border}` }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -508,9 +553,9 @@ export default function DashboardPage() {
             borderRadius: 16, padding: '14px 16px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8,
           }}>
             {[
-              { label: '💸 Расходы', value: `−${fmt(stats.expenses)}`, color: '#e05555' },
-              { label: '↩️ Возвраты', value: `−${fmt(stats.returns)}`, color: '#e08030' },
-              { label: '🏦 Чистая', value: `${stats.net_profit >= 0 ? '+' : ''}${fmt(stats.net_profit)}`, color: stats.net_profit >= 0 ? '#34c759' : '#ff3b30' },
+              { label: '💸 Расходы', value: `−${fmtCur(stats.expenses)}`, color: '#e05555' },
+              { label: '↩️ Возвраты', value: `−${fmtCur(stats.returns)}`, color: '#e08030' },
+              { label: '🏦 Чистая', value: `${stats.net_profit >= 0 ? '+' : ''}${fmtCur(stats.net_profit)}`, color: stats.net_profit >= 0 ? '#34c759' : '#ff3b30' },
             ].map((s, i) => (
               <div key={i} style={{ textAlign: 'center', borderLeft: i > 0 ? `1px solid ${border}` : 'none' }}>
                 <div style={{ fontSize: 10, color: muted, marginBottom: 4 }}>{s.label}</div>
@@ -556,12 +601,6 @@ export default function DashboardPage() {
               <div style={{ marginTop: 8, background: '#ff950015', border: '1px solid #ff950035', borderRadius: 10, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: 12, color: muted }}>🚚 Долг поставщикам</span>
                 <span style={{ fontSize: 14, fontWeight: 800, color: '#ff9500' }}>{fmt(data.total_supplier_debt)} сум</span>
-              </div>
-            )}
-            {(data.total_supplier_credit ?? 0) > 0 && (
-              <div style={{ marginTop: 8, background: '#34c75915', border: '1px solid #34c75930', borderRadius: 10, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 12, color: muted }}>💚 Поставщики должны нам</span>
-                <span style={{ fontSize: 14, fontWeight: 800, color: '#34c759' }}>{fmt(data.total_supplier_credit)} сум</span>
               </div>
             )}
             <div style={{ marginTop: 8, background: isDark ? '#1a2a1a' : '#f0faf4', border: '1px solid #34c75930', borderRadius: 10, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -711,30 +750,86 @@ export default function DashboardPage() {
             <button onClick={handlePdfReport} disabled={exportingPdf} style={{
               width: '100%', background: exportingPdf ? '#555' : 'linear-gradient(135deg, #7a3b8c, #9d4eb5)',
               border: 'none', borderRadius: 14, padding: 13, color: '#fff',
-              fontSize: 14, fontWeight: 700, cursor: 'pointer', marginBottom: 10,
+              fontSize: 14, fontWeight: 700, cursor: 'pointer', marginBottom: 12,
             }}>
-              {exportingPdf ? '⏳ Генерируем PDF...' : '📄 Скачать отчёт PDF (как в примере)'}
+              {exportingPdf ? '⏳ Генерируем PDF...' : '📄 Скачать отчёт PDF'}
             </button>
 
-            {/* Excel */}
-            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-              {([7, 30, 90] as const).map(d => (
-                <button key={d} onClick={() => setExportDays(d)} style={{ flex: 1, border: `1.5px solid ${exportDays === d ? '#2481cc' : border}`, borderRadius: 10, padding: '7px 4px', cursor: 'pointer', fontSize: 12, fontWeight: 600, background: exportDays === d ? '#2481cc20' : 'transparent', color: exportDays === d ? '#2481cc' : muted }}>
-                  {d === 7 ? '7 дней' : d === 30 ? '30 дней' : '90 дней'}
+            {/* Excel — период */}
+            <div style={{ fontSize: 12, color: muted, fontWeight: 600, marginBottom: 6 }}>📊 Excel отчёт</div>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+              {([30, 90] as const).map(d => (
+                <button key={d} onClick={() => { setExportDays(d); setExportAlltime(false) }} style={{
+                  flex: 1, border: `1.5px solid ${!exportAlltime && exportDays === d ? '#2481cc' : border}`,
+                  borderRadius: 10, padding: '8px 4px', cursor: 'pointer', fontSize: 12, fontWeight: 600,
+                  background: !exportAlltime && exportDays === d ? '#2481cc20' : 'transparent',
+                  color: !exportAlltime && exportDays === d ? '#2481cc' : muted,
+                }}>
+                  {d === 30 ? '30 дней' : '90 дней'}
                 </button>
               ))}
+              <button onClick={() => setExportAlltime(true)} style={{
+                flex: 1, border: `1.5px solid ${exportAlltime ? '#e08030' : border}`,
+                borderRadius: 10, padding: '8px 4px', cursor: 'pointer', fontSize: 12, fontWeight: 600,
+                background: exportAlltime ? '#e0803020' : 'transparent',
+                color: exportAlltime ? '#e08030' : muted,
+              }}>🗂 Всё время</button>
             </div>
-            {exportSuccess && <div style={{ background: '#34c75920', border: '1px solid #34c75940', borderRadius: 12, padding: '10px 14px', fontSize: 13, color: '#34c759', fontWeight: 600, marginBottom: 10 }}>{exportSuccess}</div>}
-            <button onClick={handleExport} disabled={exporting} style={{ width: '100%', background: exporting ? '#555' : 'linear-gradient(135deg, #1a6b3c, #2d9c5c)', border: 'none', borderRadius: 14, padding: 14, color: '#fff', fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>
-              {exporting ? '⏳ Формируем...' : isMobileTg ? '📲 Отправить в Telegram' : '📥 Скачать Excel'}
+
+            {exportSuccess && (
+              <div style={{ background: '#34c75920', border: '1px solid #34c75940', borderRadius: 12, padding: '10px 14px', fontSize: 13, color: '#34c759', fontWeight: 600, marginBottom: 10 }}>
+                {exportSuccess}
+              </div>
+            )}
+
+            <button onClick={handleExport} disabled={exporting} style={{
+              width: '100%', background: exporting ? '#555' : 'linear-gradient(135deg, #1a6b3c, #2d9c5c)',
+              border: 'none', borderRadius: 14, padding: 14, color: '#fff', fontSize: 15, fontWeight: 700, cursor: 'pointer',
+            }}>
+              {exporting
+                ? '⏳ Формируем...'
+                : isMobileTg
+                  ? `📲 Отправить в Telegram (${exportAlltime ? 'вся история' : exportDays + ' дней'})`
+                  : `📥 Скачать Excel (${exportAlltime ? 'вся история' : exportDays + ' дней'})`
+              }
             </button>
+            <div style={{ fontSize: 11, color: muted, marginTop: 6 }}>
+              7 листов: Сводка · Продажи · Остатки · Долги · Поставщики · Расходы · Возвраты
+            </div>
 
             {/* Бэкап */}
             <div style={{ marginTop: 12, borderTop: `1px solid ${border}`, paddingTop: 12 }}>
               <div style={{ fontSize: 12, color: muted, marginBottom: 8, fontWeight: 600 }}>💾 Резервная копия базы данных</div>
-              <button onClick={handleDbBackup} disabled={backingUp} style={{ width: '100%', background: isDark ? '#1a2a1a' : '#f0fff4', border: `1.5px solid #34c75940`, borderRadius: 12, padding: 11, color: '#34c759', fontSize: 13, fontWeight: 700, cursor: 'pointer', marginBottom: 8 }}>
-                {backingUp ? '⏳ Создаём бэкап...' : '💾 Скачать бэкап (.sql)'}
-              </button>
+
+              {/* Мобильный: отправить в Telegram */}
+              {isMobileTg ? (
+                <button
+                  onClick={async () => {
+                    setBackingUp(true); setBackupSuccess('')
+                    try {
+                      const res = await api.get('/export/db-backup-send')
+                      setBackupSuccess(res.data.message)
+                      setTimeout(() => setBackupSuccess(''), 5000)
+                    } catch { setImportResult('❌ Ошибка отправки бэкапа') }
+                    setBackingUp(false)
+                  }}
+                  disabled={backingUp}
+                  style={{ width: '100%', background: isDark ? '#1a2a1a' : '#f0fff4', border: `1.5px solid #34c75940`, borderRadius: 12, padding: 11, color: '#34c759', fontSize: 13, fontWeight: 700, cursor: 'pointer', marginBottom: 8 }}
+                >
+                  {backingUp ? '⏳ Создаём бэкап...' : '📲 Отправить бэкап в Telegram (.sql)'}
+                </button>
+              ) : (
+                <button onClick={handleDbBackup} disabled={backingUp} style={{ width: '100%', background: isDark ? '#1a2a1a' : '#f0fff4', border: `1.5px solid #34c75940`, borderRadius: 12, padding: 11, color: '#34c759', fontSize: 13, fontWeight: 700, cursor: 'pointer', marginBottom: 8 }}>
+                  {backingUp ? '⏳ Создаём бэкап...' : '💾 Скачать бэкап (.sql)'}
+                </button>
+              )}
+
+              {backupSuccess && (
+                <div style={{ marginBottom: 8, fontSize: 12, fontWeight: 600, color: '#34c759', padding: '8px 12px', background: '#34c75915', borderRadius: 10 }}>
+                  {backupSuccess}
+                </div>
+              )}
+
               <label style={{ display: 'block', background: isDark ? '#333' : '#f0f2f5', border: `1.5px dashed ${border}`, borderRadius: 12, padding: '11px 0', textAlign: 'center', fontSize: 13, fontWeight: 600, color: muted, cursor: 'pointer' }}>
                 {restoring ? '⏳ Восстанавливаем...' : '♻️ Восстановить из .sql'}
                 <input type="file" accept=".sql" style={{ display: 'none' }} onChange={handleDbRestore} disabled={restoring} />
